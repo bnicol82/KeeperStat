@@ -497,12 +497,23 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
             </div>
           </div>
         </Card>
-        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: "18px 0" }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {cellBox("Saves", match.saves)}{cellBox("Shots Faced", match.shotsFaced)}{cellBox("Goals Against", match.goalsAgainst)}{cellBox("Save %", `${match.shotsFaced ? Math.round((match.saves / match.shotsFaced) * 100) : 0}%`)}
+        </div>
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: "14px 0 10px", minHeight: 180 }}>
           <BigButton accent="#4CAF50" icon="🧤" lines={"SAVE"} onClick={() => dispatch({ type: "save" })} />
           <BigButton accent="#EF5350" icon="🥅" lines={"GOAL\nAGAINST"} onClick={() => dispatch({ type: "goal" })} />
-          <BigButton accent="#4A90E2" icon="⚽" lines={"SHOT ON TARGET\n(FACED)"} onClick={() => dispatch({ type: "shot" })} />
-          <BigButton accent="#9E9E9E" icon="↩" lines={"UNDO\nLAST"} onClick={() => dispatch({ type: "undo" })} disabled={!match.log.length} />
+          <BigButton accent={C.orange} icon="⚽" lines={"GOAL\nFOR"} onClick={() => dispatch({ type: "goalFor" })} />
+          <BigButton accent="#4A90E2" icon="🎯" lines={"SHOT ON TARGET\n(FACED)"} onClick={() => dispatch({ type: "shot" })} />
         </div>
+        <button
+          onClick={() => dispatch({ type: "undo" })}
+          disabled={!match.log.length}
+          className="btn3d btn3d-outline"
+          style={{ width: "100%", padding: 11, borderRadius: 12, fontWeight: 700, fontSize: 13, opacity: match.log.length ? 1 : 0.4, marginBottom: 8 }}
+        >
+          ↩ Undo Last
+        </button>
         {match.log.length > 0 && (
           <div style={{ fontSize: 12, color: C.gray, textAlign: "center", paddingBottom: 8 }}>
             Last: <span style={{ color: C.white, fontWeight: 600 }}>{match.log[match.log.length - 1].label}</span> · {match.log.length} event{match.log.length > 1 ? "s" : ""} logged
@@ -1491,12 +1502,14 @@ export default function KeeperStat() {
     setMatch((m) => {
       if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
       if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
+      if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
       if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
       if (a.type === "undo" && m.log.length) {
         const last = m.log[m.log.length - 1];
         const log = m.log.slice(0, -1);
         if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
         if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, log };
+        if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, log };
         return { ...m, shotsFaced: m.shotsFaced - 1, log };
       }
       return m;
