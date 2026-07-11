@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { api } from "./api.js";
 
 /* ============================================================
    KEEPERSTAT — Goalkeeper tracking app prototype
@@ -30,22 +31,6 @@ const C = {
 
 const font = "'Barlow', -apple-system, 'Segoe UI', Roboto, sans-serif";
 const fontCond = "'Barlow Condensed', 'Arial Narrow', sans-serif";
-
-// ---------- default sample season data (used to seed the first keeper profile) ----------
-// saves/shotsFaced/ga describe the keeper's game; goalsScored/teamShotsOnGoal
-// describe the team's attack that same match — used for GMIS match context.
-const sampleSeasonMatches = [
-  { n: 1, opp: "Northside United", saves: 3, shotsFaced: 6, ga: 3, res: "L 1-3", goalsScored: 1, teamShotsOnGoal: 6, minutesPlayed: 70 },
-  { n: 2, opp: "Harbor FC", saves: 4, shotsFaced: 6, ga: 2, res: "D 2-2", goalsScored: 2, teamShotsOnGoal: 7, minutesPlayed: 70 },
-  { n: 3, opp: "Westfield Rovers", saves: 5, shotsFaced: 6, ga: 1, res: "W 3-1", goalsScored: 3, teamShotsOnGoal: 8, minutesPlayed: 70 },
-  { n: 4, opp: "Lakeview SC", saves: 4, shotsFaced: 6, ga: 2, res: "W 2-1", goalsScored: 2, teamShotsOnGoal: 7, minutesPlayed: 70 },
-  { n: 5, opp: "Eastgate Athletic", saves: 3, shotsFaced: 5, ga: 2, res: "L 0-2", goalsScored: 0, teamShotsOnGoal: 5, minutesPlayed: 70 },
-  { n: 6, opp: "Summit City", saves: 6, shotsFaced: 7, ga: 1, res: "W 4-1", goalsScored: 4, teamShotsOnGoal: 9, minutesPlayed: 70 },
-  { n: 7, opp: "Ironbridge FC", saves: 4, shotsFaced: 5, ga: 1, res: "D 1-1", goalsScored: 1, teamShotsOnGoal: 6, minutesPlayed: 70 },
-  { n: 8, opp: "Redhill Rangers", saves: 5, shotsFaced: 5, ga: 0, res: "W 2-0", goalsScored: 2, teamShotsOnGoal: 7, minutesPlayed: 70 },
-  { n: 9, opp: "Southport Town", saves: 4, shotsFaced: 6, ga: 2, res: "W 3-2", goalsScored: 3, teamShotsOnGoal: 8, minutesPlayed: 70 },
-  { n: 10, opp: "River City FC", saves: 5, shotsFaced: 7, ga: 0, res: "W 1-0", goalsScored: 1, teamShotsOnGoal: 9, minutesPlayed: 70 },
-];
 
 const drills = [
   { title: "Low Dive Reaction Drill", mins: 8, emoji: "🧤", desc: "Rapid-fire low balls to alternate sides. Focus on collapse technique and quick recovery to set position." },
@@ -1192,33 +1177,63 @@ export default function KeeperStat() {
 
   // multi-keeper support: each keeper has their own profile + match history,
   // so a parent with more than one kid in goal can switch between them.
-  const [keepers, setKeepers] = useState([
-    {
-      id: "k1",
-      name: "Jordan Casey",
-      team: "Riverside SC — U14 Elite",
-      level: "youth",
-      focusArea: { title: "Low Diving Saves", note: "Work on technique and explosiveness" },
-      nextGoal: "Increase distribution accuracy above 80%",
-    },
-  ]);
-  const [activeKeeperId, setActiveKeeperId] = useState("k1");
-  const [matchesByKeeper, setMatchesByKeeper] = useState({ k1: sampleSeasonMatches });
+  // Profiles and matches live in Neon — see src/api.js — not in local state.
+  const [keepers, setKeepers] = useState([]);
+  const [keepersLoading, setKeepersLoading] = useState(true);
+  const [activeKeeperId, setActiveKeeperId] = useState(null);
+  const [matchesByKeeper, setMatchesByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ks = await api.listKeepers();
+        if (cancelled) return;
+        setKeepers(ks);
+        if (ks.length) {
+          const firstId = ks[0].id;
+          setActiveKeeperId(firstId);
+          const ms = await api.listMatches(firstId);
+          if (cancelled) return;
+          setMatchesByKeeper({ [firstId]: ms });
+        }
+      } catch (err) {
+        console.error("Failed to load keepers from API", err);
+      } finally {
+        if (!cancelled) setKeepersLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const activeKeeper = keepers.find((k) => k.id === activeKeeperId) || keepers[0];
   const matches = matchesByKeeper[activeKeeperId] || [];
-  const baseline = LEVELS[activeKeeper.level].baseline;
+  const baseline = activeKeeper ? LEVELS[activeKeeper.level].baseline : null;
 
-  const updateActiveKeeper = (patch) => setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
+  const updateActiveKeeper = (patch) => {
+    setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
+    api.updateKeeper(activeKeeperId, patch).catch((err) => console.error("Failed to save keeper", err));
+  };
   const addKeeper = () => {
-    const id = `k${Date.now().toString(36)}`;
-    setKeepers((ks) => [...ks, { id, name: "New Keeper", team: "My Team", level: "youth", focusArea: null, nextGoal: null }]);
-    setMatchesByKeeper((mb) => ({ ...mb, [id]: [] }));
+    api.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
+      .then((keeper) => {
+        setKeepers((ks) => [...ks, keeper]);
+        setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
+        setActiveKeeperId(keeper.id);
+        setKeeperSheetOpen(false);
+      })
+      .catch((err) => console.error("Failed to create keeper", err));
+  };
+  const selectKeeper = (id) => {
     setActiveKeeperId(id);
     setKeeperSheetOpen(false);
+    if (!matchesByKeeper[id]) {
+      api.listMatches(id)
+        .then((ms) => setMatchesByKeeper((mb) => ({ ...mb, [id]: ms })))
+        .catch((err) => console.error("Failed to load matches", err));
+    }
   };
-  const selectKeeper = (id) => { setActiveKeeperId(id); setKeeperSheetOpen(false); };
 
   // live clock tick — only while a match is actually in progress
   useEffect(() => {
@@ -1245,10 +1260,8 @@ export default function KeeperStat() {
   };
   const saveMatchToHistory = () => {
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
-    const nextN = (matches[matches.length - 1]?.n || 0) + 1;
     const [mm] = match.clock.split(":").map(Number);
-    const record = {
-      n: nextN,
+    const payload = {
       opp: match.opponent || "Unknown Opponent",
       saves: match.saves,
       shotsFaced: faced,
@@ -1258,10 +1271,14 @@ export default function KeeperStat() {
       teamShotsOnGoal: null, // the live tracker only captures the keeper's own stats today
       minutesPlayed: mm || null,
     };
-    setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
-    setMatch({ opponent: "", ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
-    setMatchStatus("idle");
-    go("report", nextN);
+    api.createMatch(activeKeeperId, payload)
+      .then((record) => {
+        setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
+        setMatch({ opponent: "", ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
+        setMatchStatus("idle");
+        go("report", record.n);
+      })
+      .catch((err) => console.error("Failed to save match", err));
   };
 
   const dispatch = (a) => {
@@ -1281,6 +1298,28 @@ export default function KeeperStat() {
   };
 
   const openShare = (data) => { setShareData(data); setShareOpen(true); };
+
+  if (keepersLoading) {
+    return (
+      <div style={{ height: "100dvh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.gray, fontFamily: font }}>
+        Loading…
+      </div>
+    );
+  }
+
+  if (!activeKeeper) {
+    return (
+      <div style={{ height: "100dvh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: C.white, fontFamily: font, padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>No keeper profiles yet</div>
+        <button
+          onClick={addKeeper}
+          style={{ padding: "12px 24px", borderRadius: 22, fontFamily: fontCond, fontWeight: 700, fontSize: 15, color: "#fff", background: C.orange, border: "none", cursor: "pointer" }}
+        >
+          Create Keeper Profile
+        </button>
+      </div>
+    );
+  }
 
   const go = (s, matchId) => {
     setScreen(s);
