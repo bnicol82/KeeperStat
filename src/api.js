@@ -15,4 +15,9 @@ export const api = {
   updateKeeper: (id, patch) => request(`/api/keepers/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   listMatches: (keeperId) => request(`/api/keepers/${keeperId}/matches`),
   createMatch: (keeperId, match) => request(`/api/keepers/${keeperId}/matches`, { method: "POST", body: JSON.stringify(match) }),
+  updateMatch: (keeperId, matchId, patch) => request(`/api/keepers/${keeperId}/matches/${matchId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteMatch: (keeperId, matchId) => request(`/api/keepers/${keeperId}/matches/${matchId}`, { method: "DELETE" }),
+  listFixtures: (keeperId) => request(`/api/keepers/${keeperId}/fixtures`),
+  importFixtures: (keeperId, fixtures) => request(`/api/keepers/${keeperId}/fixtures`, { method: "POST", body: JSON.stringify(fixtures) }),
+  deleteFixture: (keeperId, fixtureId) => request(`/api/keepers/${keeperId}/fixtures/${fixtureId}`, { method: "DELETE" }),
 };

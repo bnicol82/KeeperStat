@@ -13,7 +13,7 @@ export function withCors(req, res) {
   if (ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
     res.status(204).end();
@@ -37,6 +37,7 @@ export function keeperToJson(row) {
 
 export function matchToJson(row) {
   return {
+    id: row.id,
     n: row.match_number,
     opp: row.opponent,
     saves: row.saves,
@@ -46,5 +47,14 @@ export function matchToJson(row) {
     goalsScored: row.goals_scored,
     teamShotsOnGoal: row.team_shots_on_goal,
     minutesPlayed: row.minutes_played,
+  };
+}
+
+export function fixtureToJson(row) {
+  return {
+    id: row.id,
+    opponent: row.opponent,
+    // neon-serverless returns DATE columns as JS Date objects; format as YYYY-MM-DD
+    date: row.match_date ? row.match_date.toISOString().slice(0, 10) : null,
   };
 }

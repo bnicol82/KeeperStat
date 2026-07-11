@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
+import { parseScheduleText } from "./scheduleImport.js";
 
 /* ============================================================
    KEEPERSTAT — Goalkeeper tracking app prototype
@@ -1066,7 +1067,170 @@ const Toggle = ({ on, onChange }) => (
   </button>
 );
 
-const Settings = ({ go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs }) => (
+const TeamRecord = ({ matches }) => {
+  const w = matches.filter((m) => m.res?.startsWith("W")).length;
+  const l = matches.filter((m) => m.res?.startsWith("L")).length;
+  const d = matches.filter((m) => m.res?.startsWith("D")).length;
+  const gf = matches.reduce((s, m) => s + (m.goalsScored || 0), 0);
+  const ga = matches.reduce((s, m) => s + (m.ga || 0), 0);
+  const gd = gf - ga;
+  return (
+    <Card style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 10 }}>TEAM RECORD</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontFamily: fontCond, fontWeight: 800, fontSize: 26, color: C.white, letterSpacing: 0.5 }}>{w}-{l}-{d}</span>
+        <span style={{ fontSize: 13, color: C.gray, fontWeight: 600 }}>
+          GF {gf} · GA {ga} · GD {gd >= 0 ? "+" : ""}{gd}
+        </span>
+      </div>
+    </Card>
+  );
+};
+
+const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
+  const [text, setText] = useState("");
+  const fileInputRef = useRef(null);
+
+  const importText = () => {
+    const items = parseScheduleText(text);
+    if (items.length) {
+      onImport(items);
+      setText("");
+    }
+  };
+
+  const importFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const items = parseScheduleText(String(reader.result || ""));
+      if (items.length) onImport(items);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <Card style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 4 }}>SEASON SCHEDULE</div>
+      <div style={{ fontSize: 12.5, color: C.grayDark, lineHeight: 1.5, marginBottom: 12 }}>
+        Paste rows as "Opponent, Date" (one per line), or upload a .csv/.tsv export from a spreadsheet.
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"Harbor FC, 2026-08-01\nWestfield Rovers, 2026-08-08"}
+        className="input-well"
+        style={{ width: "100%", minHeight: 76, padding: "10px 12px", color: C.white, fontSize: 14, fontFamily: font, outline: "none", resize: "vertical", marginBottom: 10 }}
+      />
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={importText} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}>
+          Import Pasted Rows
+        </button>
+        <button onClick={() => fileInputRef.current?.click()} className="btn3d btn3d-outline" style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 700, fontSize: 13 }}>
+          Upload CSV
+        </button>
+        <input ref={fileInputRef} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" onChange={importFile} style={{ display: "none" }} />
+      </div>
+
+      {fixtures.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          {fixtures.map((f) => (
+            <div key={f.id} className="settings-row">
+              <div>
+                <div className="settings-row-label">{f.opponent}</div>
+                {f.date && <div className="settings-row-desc">{f.date}</div>}
+              </div>
+              <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+};
+
+const MatchHistoryRow = ({ match, onSave, onDelete }) => {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(match);
+
+  useEffect(() => { setForm(match); }, [match]);
+
+  if (!editing) {
+    return (
+      <button className="sheet-row" style={{ padding: "10px 14px", width: "100%" }} onClick={() => setEditing(true)}>
+        <span className="sheet-row-text">
+          <span className="sheet-row-title">{match.opp}</span>
+          <span className="sheet-row-desc">{match.res} · {match.saves} saves / {match.shotsFaced} faced</span>
+        </span>
+        <span className="sheet-row-chev">✎</span>
+      </button>
+    );
+  }
+
+  const field = (label, key, type = "text") => (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>{label}</div>
+      <input
+        type={type}
+        value={form[key] ?? ""}
+        onChange={(e) => setForm({ ...form, [key]: type === "number" ? Number(e.target.value) : e.target.value })}
+        className="input-well"
+        style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 14, fontFamily: font, outline: "none" }}
+      />
+    </div>
+  );
+
+  const save = () => {
+    const goalsScored = Number(form.goalsScored) || 0;
+    const ga = Number(form.ga) || 0;
+    const res = `${goalsScored > ga ? "W" : goalsScored < ga ? "L" : "D"} ${goalsScored}-${ga}`;
+    onSave(match.id, { ...form, goalsScored, ga, res });
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.border}` }}>
+      {field("Opponent", "opp")}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {field("Saves", "saves", "number")}
+        {field("Shots Faced", "shotsFaced", "number")}
+        {field("Goals Against", "ga", "number")}
+        {field("Goals Scored", "goalsScored", "number")}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+        <button onClick={save} className="btn3d btn3d-orange" style={{ flex: 1, padding: 10, borderRadius: 10, fontFamily: fontCond, fontWeight: 700, fontSize: 13 }}>
+          Save
+        </button>
+        <button onClick={() => { onDelete(match.id); setEditing(false); }} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13 }}>
+          Delete
+        </button>
+        <button onClick={() => setEditing(false)} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 13 }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const MatchHistory = ({ matches, onSave, onDelete }) => (
+  <Card style={{ marginTop: 12, padding: 0, overflow: "hidden" }}>
+    <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, padding: "14px 14px 6px" }}>MATCH HISTORY</div>
+    {matches.length === 0 ? (
+      <div style={{ padding: "0 14px 14px", fontSize: 13, color: C.grayDark }}>No matches tracked yet.</div>
+    ) : (
+      [...matches].reverse().map((m) => <MatchHistoryRow key={m.id} match={m} onSave={onSave} onDelete={onDelete} />)
+    )}
+  </Card>
+);
+
+const Settings = ({
+  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
+  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture,
+}) => (
   <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
     <Header title="Settings" left="‹" onLeft={() => go("dashboard")} />
     <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
@@ -1121,6 +1285,10 @@ const Settings = ({ go, keepers, activeKeeper, updateActiveKeeper, selectKeeper,
           ))}
         </div>
       </Card>
+
+      <TeamRecord matches={matches} />
+      <ScheduleImport fixtures={fixtures} onImport={onImportSchedule} onDelete={onDeleteFixture} />
+      <MatchHistory matches={matches} onSave={onUpdateMatch} onDelete={onDeleteMatch} />
 
       <Card style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 4 }}>SCORING & REPORTS</div>
@@ -1182,6 +1350,7 @@ export default function KeeperStat() {
   const [keepersLoading, setKeepersLoading] = useState(true);
   const [activeKeeperId, setActiveKeeperId] = useState(null);
   const [matchesByKeeper, setMatchesByKeeper] = useState({});
+  const [fixturesByKeeper, setFixturesByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
 
   useEffect(() => {
@@ -1194,9 +1363,10 @@ export default function KeeperStat() {
         if (ks.length) {
           const firstId = ks[0].id;
           setActiveKeeperId(firstId);
-          const ms = await api.listMatches(firstId);
+          const [ms, fx] = await Promise.all([api.listMatches(firstId), api.listFixtures(firstId)]);
           if (cancelled) return;
           setMatchesByKeeper({ [firstId]: ms });
+          setFixturesByKeeper({ [firstId]: fx });
         }
       } catch (err) {
         console.error("Failed to load keepers from API", err);
@@ -1209,6 +1379,7 @@ export default function KeeperStat() {
 
   const activeKeeper = keepers.find((k) => k.id === activeKeeperId) || keepers[0];
   const matches = matchesByKeeper[activeKeeperId] || [];
+  const fixtures = fixturesByKeeper[activeKeeperId] || [];
   const baseline = activeKeeper ? LEVELS[activeKeeper.level].baseline : null;
 
   const updateActiveKeeper = (patch) => {
@@ -1220,6 +1391,7 @@ export default function KeeperStat() {
       .then((keeper) => {
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
+        setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
         setActiveKeeperId(keeper.id);
         setKeeperSheetOpen(false);
       })
@@ -1233,6 +1405,37 @@ export default function KeeperStat() {
         .then((ms) => setMatchesByKeeper((mb) => ({ ...mb, [id]: ms })))
         .catch((err) => console.error("Failed to load matches", err));
     }
+    if (!fixturesByKeeper[id]) {
+      api.listFixtures(id)
+        .then((fx) => setFixturesByKeeper((fb) => ({ ...fb, [id]: fx })))
+        .catch((err) => console.error("Failed to load fixtures", err));
+    }
+  };
+
+  const importFixtures = (items) => {
+    api.importFixtures(activeKeeperId, items)
+      .then((created) => {
+        setFixturesByKeeper((fb) => ({
+          ...fb,
+          [activeKeeperId]: [...(fb[activeKeeperId] || []), ...created].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")),
+        }));
+      })
+      .catch((err) => console.error("Failed to import schedule", err));
+  };
+  const deleteFixture = (fixtureId) => {
+    setFixturesByKeeper((fb) => ({ ...fb, [activeKeeperId]: (fb[activeKeeperId] || []).filter((f) => f.id !== fixtureId) }));
+    api.deleteFixture(activeKeeperId, fixtureId).catch((err) => console.error("Failed to delete fixture", err));
+  };
+  const updateMatch = (matchId, patch) => {
+    setMatchesByKeeper((mb) => ({
+      ...mb,
+      [activeKeeperId]: (mb[activeKeeperId] || []).map((m) => (m.id === matchId ? { ...m, ...patch } : m)),
+    }));
+    api.updateMatch(activeKeeperId, matchId, patch).catch((err) => console.error("Failed to update match", err));
+  };
+  const deleteMatch = (matchId) => {
+    setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: (mb[activeKeeperId] || []).filter((m) => m.id !== matchId) }));
+    api.deleteMatch(activeKeeperId, matchId).catch((err) => console.error("Failed to delete match", err));
   };
 
   // live clock tick — only while a match is actually in progress
@@ -1361,6 +1564,12 @@ export default function KeeperStat() {
         addKeeper={addKeeper}
         showGMIS={showGMIS} setShowGMIS={setShowGMIS}
         notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}
+        matches={matches}
+        onUpdateMatch={updateMatch}
+        onDeleteMatch={deleteMatch}
+        fixtures={fixtures}
+        onImportSchedule={importFixtures}
+        onDeleteFixture={deleteFixture}
       />
     ),
   };
