@@ -21,6 +21,14 @@ export default async function handler(req, res) {
       goals_scored: p.goalsScored ?? existing.goals_scored,
       team_shots_on_goal: p.teamShotsOnGoal !== undefined ? p.teamShotsOnGoal : existing.team_shots_on_goal,
       minutes_played: p.minutesPlayed !== undefined ? p.minutesPlayed : existing.minutes_played,
+      distribution_completed: p.distributionCompleted ?? existing.distribution_completed,
+      distribution_attempted: p.distributionAttempted ?? existing.distribution_attempted,
+      claims: p.claims ?? existing.claims,
+      punches: p.punches ?? existing.punches,
+      penalty_saves: p.penaltySaves ?? existing.penalty_saves,
+      big_saves: p.bigSaves ?? existing.big_saves,
+      errors: p.errors ?? existing.errors,
+      notes: p.notes !== undefined ? p.notes : existing.notes,
     };
 
     const [row] = await sql`
@@ -32,7 +40,15 @@ export default async function handler(req, res) {
         result = ${next.result},
         goals_scored = ${next.goals_scored},
         team_shots_on_goal = ${next.team_shots_on_goal},
-        minutes_played = ${next.minutes_played}
+        minutes_played = ${next.minutes_played},
+        distribution_completed = ${next.distribution_completed},
+        distribution_attempted = ${next.distribution_attempted},
+        claims = ${next.claims},
+        punches = ${next.punches},
+        penalty_saves = ${next.penalty_saves},
+        big_saves = ${next.big_saves},
+        errors = ${next.errors},
+        notes = ${next.notes}
       WHERE id = ${matchId}
       RETURNING *
     `;

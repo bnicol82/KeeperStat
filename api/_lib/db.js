@@ -47,6 +47,14 @@ export function matchToJson(row) {
     goalsScored: row.goals_scored,
     teamShotsOnGoal: row.team_shots_on_goal,
     minutesPlayed: row.minutes_played,
+    distributionCompleted: row.distribution_completed,
+    distributionAttempted: row.distribution_attempted,
+    claims: row.claims,
+    punches: row.punches,
+    penaltySaves: row.penalty_saves,
+    bigSaves: row.big_saves,
+    errors: row.errors,
+    notes: row.notes,
   };
 }
 

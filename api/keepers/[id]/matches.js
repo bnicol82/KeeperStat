@@ -18,8 +18,14 @@ export default async function handler(req, res) {
       SELECT COALESCE(MAX(match_number), 0) + 1 AS next_n FROM matches WHERE keeper_id = ${id}
     `;
     const [row] = await sql`
-      INSERT INTO matches (keeper_id, match_number, opponent, saves, shots_faced, goals_against, result, goals_scored, team_shots_on_goal, minutes_played)
-      VALUES (${id}, ${next_n}, ${m.opp ?? "Unknown Opponent"}, ${m.saves ?? 0}, ${m.shotsFaced ?? 0}, ${m.ga ?? 0}, ${m.res}, ${m.goalsScored ?? 0}, ${m.teamShotsOnGoal ?? null}, ${m.minutesPlayed ?? null})
+      INSERT INTO matches (
+        keeper_id, match_number, opponent, saves, shots_faced, goals_against, result, goals_scored, team_shots_on_goal, minutes_played,
+        distribution_completed, distribution_attempted, claims, punches, penalty_saves, big_saves, errors, notes
+      )
+      VALUES (
+        ${id}, ${next_n}, ${m.opp ?? "Unknown Opponent"}, ${m.saves ?? 0}, ${m.shotsFaced ?? 0}, ${m.ga ?? 0}, ${m.res}, ${m.goalsScored ?? 0}, ${m.teamShotsOnGoal ?? null}, ${m.minutesPlayed ?? null},
+        ${m.distributionCompleted ?? 0}, ${m.distributionAttempted ?? 0}, ${m.claims ?? 0}, ${m.punches ?? 0}, ${m.penaltySaves ?? 0}, ${m.bigSaves ?? 0}, ${m.errors ?? 0}, ${m.notes ?? null}
+      )
       RETURNING *
     `;
     res.status(201).json(matchToJson(row));

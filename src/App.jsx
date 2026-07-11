@@ -391,7 +391,25 @@ const BigButton = ({ accent, icon, lines, onClick, disabled }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, baseline, fixtures }) => {
+const SmallActionButton = ({ icon, label, count, color, onClick }) => (
+  <button
+    onClick={onClick}
+    className="btn3d"
+    style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+      padding: "10px 12px", borderRadius: 12, background: "linear-gradient(180deg, #1c1c1c, #101010)",
+      border: `1px solid ${color}40`, boxShadow: "0 3px 0 #050505, inset 0 1px 0 rgba(255,255,255,.05)",
+      color: C.white, fontFamily: font, textAlign: "left",
+    }}
+  >
+    <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700 }}>
+      <span style={{ fontSize: 15 }}>{icon}</span>{label}
+    </span>
+    <span style={{ fontFamily: fontCond, fontSize: 18, fontWeight: 800, color }}>{count}</span>
+  </button>
+);
+
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -458,6 +476,26 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("Save %", `${savePct}%`)}{cellBox("Clean Sheet", match.goalsAgainst === 0 ? "Yes" : "No")}{cellBox("Minutes", match.clock.split(":")[0] + "'")}
           </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("Distribution", `${match.distributionCompleted}/${match.distributionAttempted}`)}{cellBox("Claims", match.claims)}{cellBox("Punches", match.punches)}{cellBox("Errors", match.errors)}
+          </div>
+          {(match.bigSaves > 0 || match.penaltySaves > 0) && (
+            <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600, textAlign: "center", marginTop: 10 }}>
+              {match.bigSaves > 0 && `⭐ ${match.bigSaves} Big Save${match.bigSaves > 1 ? "s" : ""}`}
+              {match.bigSaves > 0 && match.penaltySaves > 0 && " · "}
+              {match.penaltySaves > 0 && `🥇 ${match.penaltySaves} Penalty Save${match.penaltySaves > 1 ? "s" : ""}`}
+            </div>
+          )}
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>POST-MATCH NOTES</div>
+            <textarea
+              value={match.notes}
+              onChange={(e) => onNotesChange(e.target.value)}
+              placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+              className="input-well"
+              style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 14, fontFamily: font, outline: "none", resize: "vertical" }}
+            />
+          </Card>
           <button onClick={onSaveMatch} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
             SAVE TO SEASON
           </button>
@@ -500,12 +538,23 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           {cellBox("Saves", match.saves)}{cellBox("Shots Faced", match.shotsFaced)}{cellBox("Goals Against", match.goalsAgainst)}{cellBox("Save %", `${match.shotsFaced ? Math.round((match.saves / match.shotsFaced) * 100) : 0}%`)}
         </div>
-        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: "14px 0 10px", minHeight: 180 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: "14px 0 10px", minHeight: 210 }}>
           <BigButton accent="#4CAF50" icon="🧤" lines={"SAVE"} onClick={() => dispatch({ type: "save" })} />
+          <BigButton accent="#4A90E2" icon="🎯" lines={"SHOT ON TARGET\n(FACED)"} onClick={() => dispatch({ type: "shot" })} />
           <BigButton accent="#EF5350" icon="🥅" lines={"GOAL\nAGAINST"} onClick={() => dispatch({ type: "goal" })} />
           <BigButton accent={C.orange} icon="⚽" lines={"GOAL\nFOR"} onClick={() => dispatch({ type: "goalFor" })} />
-          <BigButton accent="#4A90E2" icon="🎯" lines={"SHOT ON TARGET\n(FACED)"} onClick={() => dispatch({ type: "shot" })} />
         </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.gray, letterSpacing: 1, margin: "6px 0 8px" }}>MORE ACTIONS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <SmallActionButton icon="🎯" label="Distribution ✓" count={match.distributionCompleted} color={C.green} onClick={() => dispatch({ type: "distributionComplete" })} />
+          <SmallActionButton icon="🚫" label="Distribution ✗" count={match.distributionAttempted - match.distributionCompleted} color={C.gray} onClick={() => dispatch({ type: "distributionMiss" })} />
+          <SmallActionButton icon="🙌" label="Claim" count={match.claims} color={C.blue} onClick={() => dispatch({ type: "claim" })} />
+          <SmallActionButton icon="👊" label="Punch" count={match.punches} color={C.blue} onClick={() => dispatch({ type: "punch" })} />
+          <SmallActionButton icon="🥇" label="Penalty Save" count={match.penaltySaves} color={C.gold} onClick={() => dispatch({ type: "penaltySave" })} />
+          <SmallActionButton icon="⭐" label="Big Save" count={match.bigSaves} color={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
+        </div>
+
         <button
           onClick={() => dispatch({ type: "undo" })}
           disabled={!match.log.length}
@@ -515,8 +564,20 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           ↩ Undo Last
         </button>
         {match.log.length > 0 && (
-          <div style={{ fontSize: 12, color: C.gray, textAlign: "center", paddingBottom: 8 }}>
-            Last: <span style={{ color: C.white, fontWeight: 600 }}>{match.log[match.log.length - 1].label}</span> · {match.log.length} event{match.log.length > 1 ? "s" : ""} logged
+          <div style={{ fontSize: 12, color: C.gray, textAlign: "center", paddingBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>Last: <span style={{ color: C.white, fontWeight: 600 }}>{match.log[match.log.length - 1].label}</span> · {match.log.length} event{match.log.length > 1 ? "s" : ""} logged</span>
+            {match.log[match.log.length - 1].t === "goal" && (
+              <button
+                onClick={() => dispatch({ type: "toggleError" })}
+                style={{
+                  background: match.log[match.log.length - 1].isError ? C.red : "transparent",
+                  border: `1px solid ${C.red}`, color: match.log[match.log.length - 1].isError ? "#fff" : C.red,
+                  borderRadius: 10, padding: "3px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                ⚠ {match.log[match.log.length - 1].isError ? "Keeper Error" : "Mark as Error"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1346,12 +1407,18 @@ const Settings = ({
 
 /* ============================================================ APP */
 
+const emptyMatch = (opponent = "") => ({
+  opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [],
+  distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0,
+  penaltySaves: 0, bigSaves: 0, errors: 0, notes: "",
+});
+
 export default function KeeperStat() {
   const [screen, setScreen] = useState("welcome");
   const [moreOpen, setMoreOpen] = useState(false);
   const [keeperSheetOpen, setKeeperSheetOpen] = useState(false);
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | live | ended
-  const [match, setMatch] = useState({ opponent: "", ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
+  const [match, setMatch] = useState(() => emptyMatch());
   const [showGMIS, setShowGMIS] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
@@ -1466,15 +1533,16 @@ export default function KeeperStat() {
   }, [matchStatus]);
 
   const startMatch = (opponent) => {
-    setMatch({ opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
+    setMatch(emptyMatch(opponent));
     setMatchStatus("live");
   };
   const endMatch = () => setMatchStatus("ended");
   const resumeMatch = () => setMatchStatus("live");
   const discardMatch = () => {
-    setMatch({ opponent: "", ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
+    setMatch(emptyMatch());
     setMatchStatus("idle");
   };
+  const setMatchNotes = (notes) => setMatch((m) => ({ ...m, notes }));
   const saveMatchToHistory = () => {
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
     const [mm] = match.clock.split(":").map(Number);
@@ -1487,11 +1555,19 @@ export default function KeeperStat() {
       goalsScored: match.ourGoals,
       teamShotsOnGoal: null, // the live tracker only captures the keeper's own stats today
       minutesPlayed: mm || null,
+      distributionCompleted: match.distributionCompleted,
+      distributionAttempted: match.distributionAttempted,
+      claims: match.claims,
+      punches: match.punches,
+      penaltySaves: match.penaltySaves,
+      bigSaves: match.bigSaves,
+      errors: match.errors,
+      notes: match.notes || null,
     };
     api.createMatch(activeKeeperId, payload)
       .then((record) => {
         setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
-        setMatch({ opponent: "", ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [] });
+        setMatch(emptyMatch());
         setMatchStatus("idle");
         go("report", record.n);
       })
@@ -1504,12 +1580,34 @@ export default function KeeperStat() {
       if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
       if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
       if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
+      if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
+      if (a.type === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionMiss", label: "Distribution Missed" }] };
+      if (a.type === "claim") return { ...m, claims: m.claims + 1, log: [...m.log, { t: "claim", label: "Claim" }] };
+      if (a.type === "punch") return { ...m, punches: m.punches + 1, log: [...m.log, { t: "punch", label: "Punch" }] };
+      if (a.type === "penaltySave") return { ...m, penaltySaves: m.penaltySaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "penaltySave", label: "Penalty Save" }] };
+      if (a.type === "bigSave") return { ...m, bigSaves: m.bigSaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "bigSave", label: "Big Save" }] };
+      if (a.type === "toggleError") {
+        if (!m.log.length) return m;
+        const lastIdx = m.log.length - 1;
+        const last = m.log[lastIdx];
+        if (last.t !== "goal") return m;
+        const flagged = !last.isError;
+        const log = [...m.log];
+        log[lastIdx] = { ...last, isError: flagged, label: flagged ? "Goal Against (Error)" : "Goal Against" };
+        return { ...m, errors: m.errors + (flagged ? 1 : -1), log };
+      }
       if (a.type === "undo" && m.log.length) {
         const last = m.log[m.log.length - 1];
         const log = m.log.slice(0, -1);
         if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-        if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, log };
+        if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
         if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, log };
+        if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
+        if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
+        if (last.t === "claim") return { ...m, claims: m.claims - 1, log };
+        if (last.t === "punch") return { ...m, punches: m.punches - 1, log };
+        if (last.t === "penaltySave") return { ...m, penaltySaves: m.penaltySaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
+        if (last.t === "bigSave") return { ...m, bigSaves: m.bigSaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
         return { ...m, shotsFaced: m.shotsFaced - 1, log };
       }
       return m;
@@ -1560,6 +1658,7 @@ export default function KeeperStat() {
         matchStatus={matchStatus} baseline={baseline}
         onStartMatch={startMatch} onEndMatch={endMatch} onResumeMatch={resumeMatch}
         onSaveMatch={saveMatchToHistory} onDiscardMatch={discardMatch}
+        onNotesChange={setMatchNotes}
         fixtures={fixtures}
       />
     ),
@@ -1645,7 +1744,7 @@ export default function KeeperStat() {
           display: flex; align-items: center; justify-content: center;
         }
         .tile-accent {
-          position: absolute; bottom: 10px; width: 40px; height: 3px; border-radius: 2px;
+          width: 40px; height: 3px; border-radius: 2px; flex-shrink: 0;
         }
 
         /* ---- recessed ring housing ---- */
