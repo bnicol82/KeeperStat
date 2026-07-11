@@ -79,7 +79,7 @@ const activeTabFor = (screen) => {
 
 // ---------- tiny UI atoms ----------
 const Header = ({ title, left, right, onLeft, onRight }) => (
-  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 16px 14px" }}>
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px", flexShrink: 0 }}>
     <button onClick={onLeft} style={{ background: "none", border: "none", color: C.white, fontSize: 22, width: 36, textAlign: "left", cursor: "pointer", padding: 0 }}>
       {left}
     </button>
@@ -354,7 +354,7 @@ const LineChart = ({ data, height = 160 }) => {
 // ---------- 1. Welcome ----------
 const Welcome = ({ go }) => (
   <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "radial-gradient(ellipse at 50% 30%, #1c2b12 0%, #050505 65%)", position: "relative", overflow: "hidden" }}>
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "56px 28px 30px", position: "relative" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "calc(env(safe-area-inset-top, 0px) + 40px) 28px calc(env(safe-area-inset-bottom, 0px) + 24px)", position: "relative", overflowY: "auto" }}>
       {/* stadium lights */}
       <div style={{ position: "absolute", top: 90, left: -30, width: 130, height: 130, background: "radial-gradient(circle, rgba(255,255,255,.14), transparent 70%)" }} />
       <div style={{ position: "absolute", top: 60, right: -30, width: 150, height: 150, background: "radial-gradient(circle, rgba(255,255,255,.12), transparent 70%)" }} />
@@ -399,9 +399,9 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
 
   if (matchStatus === "idle") {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Live Match Tracker" left="☰" right="⚙" onLeft={onOpenKeeperSwitch} onRight={() => go("settings")} />
-        <div style={{ padding: "0 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ padding: "0 16px", flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
           <Card>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 12 }}>NEW MATCH</div>
             <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Opponent</div>
@@ -434,7 +434,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
     const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline);
     const win = match.ourGoals > match.goalsAgainst, loss = match.ourGoals < match.goalsAgainst;
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Match Ended" left="☰" onLeft={onOpenKeeperSwitch} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <Card style={{ textAlign: "center" }}>
@@ -470,9 +470,9 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Live Match Tracker" left="☰" right="⚙" onLeft={onOpenKeeperSwitch} onRight={() => go("settings")} />
-      <div style={{ padding: "0 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "0 16px", flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
         <Card>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.white, fontWeight: 600 }}>
             <span>vs {match.opponent}</span>
@@ -526,9 +526,9 @@ const MatchStats = ({ match, go, baseline }) => {
   const savePct = faced ? Math.round((match.saves / faced) * 100) : 0;
   const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Match Stats (Live)" left="‹" onLeft={() => go("tracker")} />
-      <div style={{ padding: "0 16px 16px", overflowY: "auto" }}>
+      <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <StatRow icon="⚽" label="Shots on Target Faced" value={faced} />
         <StatRow icon="🧤" label="Saves" value={match.saves} />
         <StatRow icon="🥅" label="Goals Against" value={match.goalsAgainst} />
@@ -565,7 +565,7 @@ const trendDelta = (cur, prev, unit = "", goodWhenPositive = true, neutral = fal
 const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) => {
   if (matches.length === 0) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Coach Dashboard" left="☰" onLeft={onOpenKeeperSwitch} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <button onClick={onOpenKeeperSwitch} className="dropdown-pill" style={{ width: "100%", marginBottom: 12, border: "none", cursor: "pointer" }}>
@@ -601,7 +601,7 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
   const hasPrev = prev5.length > 0;
   const trendUp = avg > avgPrev, trendFlat = avg === avgPrev;
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Coach Dashboard" left="☰" onLeft={onOpenKeeperSwitch} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <button onClick={onOpenKeeperSwitch} className="dropdown-pill" style={{ width: "100%", marginBottom: 10, border: "none", cursor: "pointer" }}>
@@ -663,7 +663,7 @@ const parentTip = (word) => ({
 const ParentView = ({ go, baseline, matches, activeKeeper }) => {
   if (matches.length === 0) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Parent View" left="‹" onLeft={() => go("dashboard")} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <EmptyState icon="⭐" title="No matches yet" sub={`Once ${activeKeeper.name} plays a tracked match, a parent-friendly summary will appear here.`} cta="Start Live Match" onCta={() => go("tracker")} />
@@ -680,7 +680,7 @@ const ParentView = ({ go, baseline, matches, activeKeeper }) => {
   const recent = scored.slice(-6).map((m) => m.score);
   const { path, last } = sparklinePath(recent, 110, 40, 5);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Parent View" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <Card style={{ background: `linear-gradient(180deg, #1c3a12 0%, ${C.greenDark} 100%)`, border: `1.5px solid ${C.green}55`, textAlign: "center", padding: "22px 16px" }}>
@@ -717,7 +717,7 @@ const ParentView = ({ go, baseline, matches, activeKeeper }) => {
 const Development = ({ go, baseline, matches, activeKeeper }) => {
   if (matches.length === 0) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Keeper Development" left="‹" onLeft={() => go("dashboard")} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <EmptyState icon="🚀" title="No matches yet" sub={`${activeKeeper.name}'s strengths and focus areas will show up here after the first tracked match.`} cta="Start Live Match" onCta={() => go("tracker")} />
@@ -736,7 +736,7 @@ const Development = ({ go, baseline, matches, activeKeeper }) => {
   const focusArea = activeKeeper.focusArea || { title: "Getting Started", note: "Log a few matches to unlock a personalized focus area." };
   const nextGoal = activeKeeper.nextGoal || "Play your first tracked match.";
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Keeper Development" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <Card style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -788,7 +788,7 @@ const cellBox = (label, value) => (
 const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare }) => {
   if (matches.length === 0) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Match Report" left="‹" onLeft={() => go("progress")} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <EmptyState icon="📋" title="No matches yet" sub={`${activeKeeper.name} doesn't have any tracked matches yet.`} cta="Start Live Match" onCta={() => go("tracker")} />
@@ -807,7 +807,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const toeVal = toe(m.goalsScored, m.teamShotsOnGoal);
   const gmisVal = gmis(gdeVal, toeVal);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header
         title="Match Report" left="‹" right="⇪" onLeft={() => go("progress")}
         onRight={() => onShare({ keeperName: activeKeeper.name, m, score, savePct })}
@@ -881,7 +881,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
 const Progress = ({ go, baseline, matches, activeKeeper }) => {
   if (matches.length === 0) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <Header title="Season Progress" left="‹" onLeft={() => go("dashboard")} />
         <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
           <EmptyState icon="📈" title="No season data yet" sub={`${activeKeeper.name}'s season trend will build up here as matches are tracked.`} cta="Start Live Match" onCta={() => go("tracker")} />
@@ -900,7 +900,7 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
   const totalCS = scored.filter((m) => m.ga === 0).length;
   const totalGA = scored.reduce((a, m) => a + m.ga, 0);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Season Progress" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <Card style={{ background: `linear-gradient(180deg, #1c3a12 0%, ${C.greenDark} 100%)`, border: `1.5px solid ${C.green}44`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -948,7 +948,7 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
 const Training = ({ go }) => {
   const [open, setOpen] = useState(null);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Training Recommendations" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <Card>
@@ -985,9 +985,9 @@ const Interview = ({ go }) => {
   const key = `${tab}-${q}`;
   const next = () => (q < coachQuestions.length - 1 ? setQ(q + 1) : setDone(true));
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Interview & Feedback" left="‹" onLeft={() => go("dashboard")} />
-      <div style={{ padding: "0 16px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "0 16px 16px", flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
         <div className="tab-track">
           {["Coach", "Parent", "Keeper"].map((t) => (
             <button key={t} onClick={() => { setTab(t); setQ(0); setDone(false); }} className={`tab-pill ${tab === t ? "tab-pill-active" : ""}`}>
@@ -1231,7 +1231,7 @@ const Settings = ({
   go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
   matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture,
 }) => (
-  <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+  <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
     <Header title="Settings" left="‹" onLeft={() => go("dashboard")} />
     <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
       <Card style={{ padding: 0, overflow: "hidden" }}>
@@ -1504,7 +1504,7 @@ export default function KeeperStat() {
 
   if (keepersLoading) {
     return (
-      <div style={{ height: "100dvh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.gray, fontFamily: font }}>
+      <div className="app-shell" style={{ background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.gray, fontFamily: font }}>
         Loading…
       </div>
     );
@@ -1512,7 +1512,7 @@ export default function KeeperStat() {
 
   if (!activeKeeper) {
     return (
-      <div style={{ height: "100dvh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: C.white, fontFamily: font, padding: 24, textAlign: "center" }}>
+      <div className="app-shell" style={{ background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: C.white, fontFamily: font, padding: 24, textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>No keeper profiles yet</div>
         <button
           onClick={addKeeper}
@@ -1575,7 +1575,7 @@ export default function KeeperStat() {
   };
 
   return (
-    <div style={{ height: "100dvh", background: "#000", display: "flex", justifyContent: "center", fontFamily: font, overflow: "hidden" }}>
+    <div className="app-shell" style={{ background: "#000", display: "flex", justifyContent: "center", fontFamily: font, overflow: "hidden" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -1743,7 +1743,7 @@ export default function KeeperStat() {
 
         /* ---- bottom nav ---- */
         .navbar {
-          display: flex; gap: 4px; padding: 10px 8px 16px; flex-shrink: 0;
+          display: flex; gap: 4px; padding: 10px 8px calc(16px + env(safe-area-inset-bottom)); flex-shrink: 0;
           background: linear-gradient(180deg, #131313, #0a0a0a); border-top: 1px solid ${C.border};
           box-shadow: 0 -6px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
         }
@@ -1774,7 +1774,7 @@ export default function KeeperStat() {
           box-shadow: 0 -12px 34px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06);
           transform: translateY(105%);
           transition: transform .32s cubic-bezier(.32,.72,0,1);
-          padding: 10px 14px 22px; max-height: 74%; overflow-y: auto;
+          padding: 10px 14px calc(22px + env(safe-area-inset-bottom)); max-height: 74%; overflow-y: auto;
         }
         .sheet.open { transform: translateY(0); }
         .sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: #3a3a3a; margin: 4px auto 14px; }

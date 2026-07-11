@@ -2,8 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#050505" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>KeeperStat</title>
+    <style>
+      /* Pins the app to the viewport so iOS Safari can't rubber-band/scroll
+         the page itself — only the app's own internal panels should scroll. */
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: #050505;
+      }
+      #root { height: 100%; }
+      /* 100vh first as a fallback for browsers without dvh support (the
+         invalid dvh declaration is then simply ignored by them). */
+      .app-shell { height: 100vh; height: 100dvh; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
