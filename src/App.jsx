@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
-import { authClient } from "./authClient.js";
+import { authClient, refreshAuthToken, setCachedAuthToken } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import welcomeBg from "./assets/welcome-bg.webp";
@@ -394,6 +394,7 @@ const Login = ({ onAuthenticated, onBack }) => {
         setError(result.error.message || "Something went wrong. Please try again.");
         return;
       }
+      await refreshAuthToken();
       onAuthenticated();
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
@@ -1574,8 +1575,8 @@ export default function KeeperStat() {
   // Resume an existing real session on reload, so logging in sticks.
   useEffect(() => {
     let cancelled = false;
-    authClient.getSession().then(({ data }) => {
-      if (!cancelled && data?.session) {
+    refreshAuthToken().then((token) => {
+      if (!cancelled && token) {
         setMode("auth");
         go("dashboard");
       }
@@ -1625,6 +1626,7 @@ export default function KeeperStat() {
   };
   const handleLogout = async () => {
     if (mode === "auth") await authClient.signOut().catch(() => {});
+    setCachedAuthToken(null);
     demoApiRef.current = null;
     setMode(null);
     setKeepers([]);
