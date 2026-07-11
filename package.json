@@ -10,7 +10,9 @@
     "db:migrate": "node db/migrate.js"
   },
   "dependencies": {
+    "@neondatabase/auth": "^0.4.2-beta",
     "@neondatabase/serverless": "^0.10.4",
+    "jose": "^6.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

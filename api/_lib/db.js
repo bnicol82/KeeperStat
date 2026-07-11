@@ -14,7 +14,7 @@ export function withCors(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return true;
@@ -56,6 +56,13 @@ export function matchToJson(row) {
     errors: row.errors,
     notes: row.notes,
   };
+}
+
+// Confirms the keeper exists and belongs to userId — used by every
+// keeper-scoped sub-resource (matches, fixtures) before touching data.
+export async function ownsKeeper(id, userId) {
+  const [row] = await sql`SELECT id FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
+  return !!row;
 }
 
 export function fixtureToJson(row) {

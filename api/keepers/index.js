@@ -1,10 +1,13 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
+import { requireUser } from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
+  const userId = await requireUser(req, res);
+  if (!userId) return;
 
   if (req.method === "GET") {
-    const rows = await sql`SELECT * FROM keepers ORDER BY created_at ASC`;
+    const rows = await sql`SELECT * FROM keepers WHERE user_id = ${userId} ORDER BY created_at ASC`;
     res.status(200).json(rows.map(keeperToJson));
     return;
   }
@@ -16,8 +19,8 @@ export default async function handler(req, res) {
       return;
     }
     const [row] = await sql`
-      INSERT INTO keepers (name, team, level)
-      VALUES (${name}, ${team}, ${level ?? "youth"})
+      INSERT INTO keepers (name, team, level, user_id)
+      VALUES (${name}, ${team}, ${level ?? "youth"}, ${userId})
       RETURNING *
     `;
     res.status(201).json(keeperToJson(row));

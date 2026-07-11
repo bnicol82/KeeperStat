@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
+import { authClient } from "./authClient.js";
+import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -353,7 +355,7 @@ const LineChart = ({ data, height = 160 }) => {
 /* ============================================================ SCREENS */
 
 // ---------- 1. Welcome ----------
-const Welcome = ({ go }) => (
+const Welcome = ({ onDemo, onLogin }) => (
   <div
     style={{
       flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-end",
@@ -363,15 +365,103 @@ const Welcome = ({ go }) => (
   >
     <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.8) 100%)" }} />
     <div style={{ position: "relative", padding: `24px 28px calc(env(safe-area-inset-bottom, 0px) + 24px)` }}>
-      <button onClick={() => go("tracker")} className="btn3d btn3d-orange" style={{ width: "100%", padding: "16px", borderRadius: 30, fontFamily: fontCond, fontWeight: 700, fontSize: 19, letterSpacing: 1.5 }}>
-        GET STARTED
+      <button onClick={onDemo} className="btn3d btn3d-orange" style={{ width: "100%", padding: "16px", borderRadius: 30, fontFamily: fontCond, fontWeight: 700, fontSize: 19, letterSpacing: 1.5 }}>
+        DEMO APP
       </button>
-      <button onClick={() => go("dashboard")} className="btn3d btn3d-outline" style={{ width: "100%", padding: "15px", borderRadius: 30, marginTop: 14, fontFamily: fontCond, fontWeight: 700, fontSize: 17, letterSpacing: 1.5 }}>
+      <button onClick={onLogin} className="btn3d btn3d-outline" style={{ width: "100%", padding: "15px", borderRadius: 30, marginTop: 14, fontFamily: fontCond, fontWeight: 700, fontSize: 17, letterSpacing: 1.5 }}>
         LOG IN
       </button>
     </div>
   </div>
 );
+
+const Login = ({ onAuthenticated, onBack }) => {
+  const [mode, setMode] = useState("signin"); // signin | signup
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const result = mode === "signin"
+        ? await authClient.signIn.email({ email, password })
+        : await authClient.signUp.email({ name: name.trim() || email.split("@")[0], email, password });
+      if (result?.error) {
+        setError(result.error.message || "Something went wrong. Please try again.");
+        return;
+      }
+      onAuthenticated();
+    } catch (err) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canSubmit = email.trim() && password.length >= 8 && !loading;
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: C.bg }}>
+      <Header title={mode === "signin" ? "Log In" : "Create Account"} left="‹" onLeft={onBack} />
+      <div style={{ padding: "0 16px 16px", flex: 1, overflowY: "auto" }}>
+        <Card>
+          {mode === "signup" && (
+            <>
+              <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Name</div>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                className="input-well"
+                style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
+              />
+            </>
+          )}
+          <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Email</div>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="input-well"
+            style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
+          />
+          <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Password</div>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={mode === "signup" ? "At least 8 characters" : "Password"}
+            className="input-well"
+            style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none" }}
+            onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) submit(); }}
+          />
+        </Card>
+
+        {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className="btn3d btn3d-orange"
+          style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmit ? 1 : 0.5 }}
+        >
+          {loading ? "…" : mode === "signin" ? "LOG IN" : "CREATE ACCOUNT"}
+        </button>
+        <button
+          onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}
+          style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
+        >
+          {mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Log in"}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ---------- 2. Live Match Tracker ----------
 const BigButton = ({ accent, icon, lines, onClick, disabled }) => (
@@ -1304,8 +1394,11 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 
 const Settings = ({
   go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
-  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture,
-}) => (
+  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout,
+}) => {
+  const session = authClient.useSession();
+  const accountLabel = session?.data?.user?.email || "Demo Mode — nothing here is saved";
+  return (
   <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
     <Header title="Settings" left="‹" onLeft={() => go("dashboard")} />
     <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
@@ -1396,14 +1489,15 @@ const Settings = ({
 
       <Card style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 10 }}>ACCOUNT</div>
-        <div style={{ fontSize: 14, color: "#DADADA", marginBottom: 14 }}>coach@keeperstat.app</div>
-        <button onClick={() => go("welcome")} className="btn3d btn3d-outline" style={{ width: "100%", padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14 }}>
-          Log Out
+        <div style={{ fontSize: 14, color: "#DADADA", marginBottom: 14 }}>{accountLabel}</div>
+        <button onClick={onLogout} className="btn3d btn3d-outline" style={{ width: "100%", padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14 }}>
+          {session?.data?.user ? "Log Out" : "Exit Demo"}
         </button>
       </Card>
     </div>
   </div>
-);
+  );
+};
 
 /* ============================================================ APP */
 
@@ -1424,9 +1518,16 @@ export default function KeeperStat() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareData, setShareData] = useState(null);
 
+  // Two ways into the app: "demo" runs entirely on local, throwaway sample
+  // data (src/demoApi.js); "auth" is a real Neon Auth account whose data
+  // lives in Neon (src/api.js). Nothing renders the keeper screens until
+  // one of these is chosen — see the mode-gated guards below.
+  const [mode, setMode] = useState(null); // null | "demo" | "auth"
+  const demoApiRef = useRef(null);
+  const dataApi = mode === "demo" ? demoApiRef.current : api;
+
   // multi-keeper support: each keeper has their own profile + match history,
   // so a parent with more than one kid in goal can switch between them.
-  // Profiles and matches live in Neon — see src/api.js — not in local state.
   const [keepers, setKeepers] = useState([]);
   const [keepersLoading, setKeepersLoading] = useState(true);
   const [activeKeeperId, setActiveKeeperId] = useState(null);
@@ -1434,29 +1535,68 @@ export default function KeeperStat() {
   const [fixturesByKeeper, setFixturesByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
 
+  // Resume an existing real session on reload, so logging in sticks.
   useEffect(() => {
     let cancelled = false;
+    authClient.getSession().then(({ data }) => {
+      if (!cancelled && data?.session) {
+        setMode("auth");
+        go("dashboard");
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!mode) return;
+    const currentApi = mode === "demo" ? demoApiRef.current : api;
+    let cancelled = false;
+    setKeepersLoading(true);
     (async () => {
       try {
-        const ks = await api.listKeepers();
+        const ks = await currentApi.listKeepers();
         if (cancelled) return;
         setKeepers(ks);
         if (ks.length) {
           const firstId = ks[0].id;
           setActiveKeeperId(firstId);
-          const [ms, fx] = await Promise.all([api.listMatches(firstId), api.listFixtures(firstId)]);
+          const [ms, fx] = await Promise.all([currentApi.listMatches(firstId), currentApi.listFixtures(firstId)]);
           if (cancelled) return;
           setMatchesByKeeper({ [firstId]: ms });
           setFixturesByKeeper({ [firstId]: fx });
+        } else {
+          setActiveKeeperId(null);
+          setMatchesByKeeper({});
+          setFixturesByKeeper({});
         }
       } catch (err) {
-        console.error("Failed to load keepers from API", err);
+        console.error("Failed to load keepers", err);
       } finally {
         if (!cancelled) setKeepersLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [mode]);
+
+  const enterDemo = () => {
+    demoApiRef.current = createDemoApi();
+    setMode("demo");
+    go("tracker");
+  };
+  const handleAuthenticated = () => {
+    setMode("auth");
+    go("dashboard");
+  };
+  const handleLogout = async () => {
+    if (mode === "auth") await authClient.signOut().catch(() => {});
+    demoApiRef.current = null;
+    setMode(null);
+    setKeepers([]);
+    setActiveKeeperId(null);
+    setMatchesByKeeper({});
+    setFixturesByKeeper({});
+    go("welcome");
+  };
 
   const activeKeeper = keepers.find((k) => k.id === activeKeeperId) || keepers[0];
   const matches = matchesByKeeper[activeKeeperId] || [];
@@ -1465,10 +1605,10 @@ export default function KeeperStat() {
 
   const updateActiveKeeper = (patch) => {
     setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
-    api.updateKeeper(activeKeeperId, patch).catch((err) => console.error("Failed to save keeper", err));
+    dataApi.updateKeeper(activeKeeperId, patch).catch((err) => console.error("Failed to save keeper", err));
   };
   const addKeeper = () => {
-    api.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
+    dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
       .then((keeper) => {
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
@@ -1482,19 +1622,19 @@ export default function KeeperStat() {
     setActiveKeeperId(id);
     setKeeperSheetOpen(false);
     if (!matchesByKeeper[id]) {
-      api.listMatches(id)
+      dataApi.listMatches(id)
         .then((ms) => setMatchesByKeeper((mb) => ({ ...mb, [id]: ms })))
         .catch((err) => console.error("Failed to load matches", err));
     }
     if (!fixturesByKeeper[id]) {
-      api.listFixtures(id)
+      dataApi.listFixtures(id)
         .then((fx) => setFixturesByKeeper((fb) => ({ ...fb, [id]: fx })))
         .catch((err) => console.error("Failed to load fixtures", err));
     }
   };
 
   const importFixtures = (items) => {
-    api.importFixtures(activeKeeperId, items)
+    dataApi.importFixtures(activeKeeperId, items)
       .then((created) => {
         setFixturesByKeeper((fb) => ({
           ...fb,
@@ -1505,18 +1645,18 @@ export default function KeeperStat() {
   };
   const deleteFixture = (fixtureId) => {
     setFixturesByKeeper((fb) => ({ ...fb, [activeKeeperId]: (fb[activeKeeperId] || []).filter((f) => f.id !== fixtureId) }));
-    api.deleteFixture(activeKeeperId, fixtureId).catch((err) => console.error("Failed to delete fixture", err));
+    dataApi.deleteFixture(activeKeeperId, fixtureId).catch((err) => console.error("Failed to delete fixture", err));
   };
   const updateMatch = (matchId, patch) => {
     setMatchesByKeeper((mb) => ({
       ...mb,
       [activeKeeperId]: (mb[activeKeeperId] || []).map((m) => (m.id === matchId ? { ...m, ...patch } : m)),
     }));
-    api.updateMatch(activeKeeperId, matchId, patch).catch((err) => console.error("Failed to update match", err));
+    dataApi.updateMatch(activeKeeperId, matchId, patch).catch((err) => console.error("Failed to update match", err));
   };
   const deleteMatch = (matchId) => {
     setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: (mb[activeKeeperId] || []).filter((m) => m.id !== matchId) }));
-    api.deleteMatch(activeKeeperId, matchId).catch((err) => console.error("Failed to delete match", err));
+    dataApi.deleteMatch(activeKeeperId, matchId).catch((err) => console.error("Failed to delete match", err));
   };
 
   // live clock tick — only while a match is actually in progress
@@ -1564,7 +1704,7 @@ export default function KeeperStat() {
       errors: match.errors,
       notes: match.notes || null,
     };
-    api.createMatch(activeKeeperId, payload)
+    dataApi.createMatch(activeKeeperId, payload)
       .then((record) => {
         setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
         setMatch(emptyMatch());
@@ -1616,7 +1756,7 @@ export default function KeeperStat() {
 
   const openShare = (data) => { setShareData(data); setShareOpen(true); };
 
-  if (keepersLoading) {
+  if (mode && keepersLoading) {
     return (
       <div className="app-shell" style={{ background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", color: C.gray, fontFamily: font }}>
         Loading…
@@ -1624,7 +1764,7 @@ export default function KeeperStat() {
     );
   }
 
-  if (!activeKeeper) {
+  if (mode && !activeKeeper) {
     return (
       <div className="app-shell" style={{ background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: C.white, fontFamily: font, padding: 24, textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 700 }}>No keeper profiles yet</div>
@@ -1650,7 +1790,8 @@ export default function KeeperStat() {
   };
 
   const screens = {
-    welcome: <Welcome go={go} />,
+    welcome: <Welcome onDemo={enterDemo} onLogin={() => go("login")} />,
+    login: <Login onAuthenticated={handleAuthenticated} onBack={() => go("welcome")} />,
     tracker: (
       <Tracker
         match={match} dispatch={dispatch} go={go}
@@ -1686,6 +1827,7 @@ export default function KeeperStat() {
         fixtures={fixtures}
         onImportSchedule={importFixtures}
         onDeleteFixture={deleteFixture}
+        onLogout={handleLogout}
       />
     ),
   };
@@ -1927,9 +2069,9 @@ export default function KeeperStat() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {screens[screen]}
         </div>
-        {screen !== "welcome" && <NavBar active={activeTabFor(screen)} onNav={handleNav} />}
-        {screen !== "welcome" && <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNav={go} />}
-        {screen !== "welcome" && (
+        {screen !== "welcome" && screen !== "login" && <NavBar active={activeTabFor(screen)} onNav={handleNav} />}
+        {screen !== "welcome" && screen !== "login" && <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNav={go} />}
+        {screen !== "welcome" && screen !== "login" && (
           <KeeperSheet
             open={keeperSheetOpen}
             onClose={() => setKeeperSheetOpen(false)}
@@ -1939,7 +2081,7 @@ export default function KeeperStat() {
             onAdd={addKeeper}
           />
         )}
-        {screen !== "welcome" && <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />}
+        {screen !== "welcome" && screen !== "login" && <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />}
       </div>
     </div>
   );

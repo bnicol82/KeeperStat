@@ -1,12 +1,15 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
+import { requireUser } from "../_lib/auth.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
+  const userId = await requireUser(req, res);
+  if (!userId) return;
   const { id } = req.query;
 
   if (req.method === "PATCH") {
     const patch = req.body ?? {};
-    const [existing] = await sql`SELECT * FROM keepers WHERE id = ${id}`;
+    const [existing] = await sql`SELECT * FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
     if (!existing) {
       res.status(404).json({ error: "Keeper not found" });
       return;
@@ -35,7 +38,7 @@ export default async function handler(req, res) {
         show_gmis = ${next.show_gmis},
         match_reminders = ${next.match_reminders},
         weekly_summary = ${next.weekly_summary}
-      WHERE id = ${id}
+      WHERE id = ${id} AND user_id = ${userId}
       RETURNING *
     `;
     res.status(200).json(keeperToJson(row));
