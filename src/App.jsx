@@ -1197,6 +1197,14 @@ const Interview = ({ go }) => {
   );
 };
 
+// ---------- keeper avatar (photo, falling back to initial letter) ----------
+const Avatar = ({ keeper, style }) =>
+  keeper.photoUrl ? (
+    <img src={keeper.photoUrl} alt={keeper.name} className="keeper-avatar" style={{ objectFit: "cover", ...style }} />
+  ) : (
+    <span className="keeper-avatar" style={style}>{(keeper.name.trim().charAt(0) || "?").toUpperCase()}</span>
+  );
+
 // ---------- keeper switcher sheet ----------
 const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
   <>
@@ -1209,7 +1217,7 @@ const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
       </div>
       {keepers.map((k) => (
         <button key={k.id} className="sheet-row" onClick={() => onSelect(k.id)}>
-          <span className="keeper-avatar">{(k.name.trim().charAt(0) || "?").toUpperCase()}</span>
+          <Avatar keeper={k} />
           <span className="sheet-row-text">
             <span className="sheet-row-title">{k.name}</span>
             <span className="sheet-row-desc">{k.team}</span>
@@ -1394,10 +1402,25 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 
 const Settings = ({
   go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
-  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout,
+  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto,
 }) => {
   const session = authClient.useSession();
   const accountLabel = session?.data?.user?.email || "Demo Mode — nothing here is saved";
+  const photoInputRef = useRef(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      await onUploadPhoto(file);
+    } catch (err) {
+      console.error("Failed to upload photo", err);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
   return (
   <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
     <Header title="Settings" left="‹" onLeft={() => go("dashboard")} />
@@ -1406,7 +1429,7 @@ const Settings = ({
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, padding: "14px 14px 6px" }}>KEEPERS</div>
         {keepers.map((k) => (
           <button key={k.id} className="sheet-row" style={{ padding: "10px 14px" }} onClick={() => selectKeeper(k.id)}>
-            <span className="keeper-avatar">{(k.name.trim().charAt(0) || "?").toUpperCase()}</span>
+            <Avatar keeper={k} />
             <span className="sheet-row-text">
               <span className="sheet-row-title">{k.name}</span>
               <span className="sheet-row-desc">{k.team}</span>
@@ -1423,6 +1446,19 @@ const Settings = ({
 
       <Card style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 10 }}>EDIT — {activeKeeper.name}</div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+          <button
+            onClick={() => photoInputRef.current?.click()}
+            disabled={photoUploading}
+            style={{ position: "relative", background: "none", border: "none", padding: 0, cursor: "pointer", borderRadius: "50%", opacity: photoUploading ? 0.6 : 1 }}
+          >
+            <Avatar keeper={activeKeeper} style={{ width: 88, height: 88, fontSize: 32 }} />
+            <span style={{ position: "absolute", bottom: -2, right: -2, width: 30, height: 30, borderRadius: "50%", background: C.orange, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, border: "2px solid #0f0f0f" }}>
+              {photoUploading ? "…" : "📷"}
+            </span>
+          </button>
+          <input ref={photoInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoChange} />
+        </div>
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Keeper Name</div>
         <input
           value={activeKeeper.name}
@@ -1606,6 +1642,10 @@ export default function KeeperStat() {
   const updateActiveKeeper = (patch) => {
     setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
     dataApi.updateKeeper(activeKeeperId, patch).catch((err) => console.error("Failed to save keeper", err));
+  };
+  const uploadPhoto = async (file) => {
+    const photoUrl = await dataApi.uploadKeeperPhoto(activeKeeperId, file);
+    updateActiveKeeper({ photoUrl });
   };
   const addKeeper = () => {
     dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
@@ -1828,6 +1868,7 @@ export default function KeeperStat() {
         onImportSchedule={importFixtures}
         onDeleteFixture={deleteFixture}
         onLogout={handleLogout}
+        onUploadPhoto={uploadPhoto}
       />
     ),
   };

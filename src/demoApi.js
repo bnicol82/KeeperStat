@@ -89,5 +89,8 @@ export function createDemoApi() {
       fixturesByKeeper[keeperId] = (fixturesByKeeper[keeperId] || []).filter((f) => f.id !== fixtureId);
       return null;
     },
+
+    // No real storage in demo mode — just a local object URL for this tab's session.
+    uploadKeeperPhoto: async (keeperId, file) => URL.createObjectURL(file),
   };
 }

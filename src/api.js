@@ -1,3 +1,4 @@
+import { upload } from "@vercel/blob/client";
 import { getAuthToken } from "./authClient.js";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -26,4 +27,13 @@ export const api = {
   listFixtures: (keeperId) => request(`/api/keepers/${keeperId}/fixtures`),
   importFixtures: (keeperId, fixtures) => request(`/api/keepers/${keeperId}/fixtures`, { method: "POST", body: JSON.stringify(fixtures) }),
   deleteFixture: (keeperId, fixtureId) => request(`/api/keepers/${keeperId}/fixtures/${fixtureId}`, { method: "DELETE" }),
+  uploadKeeperPhoto: async (keeperId, file) => {
+    const token = await getAuthToken();
+    const blob = await upload(`keepers/${keeperId}/${file.name}`, file, {
+      access: "public",
+      handleUploadUrl: `${BASE_URL}/api/keepers/${keeperId}/photo`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return blob.url;
+  },
 };
