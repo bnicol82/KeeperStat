@@ -2,9 +2,13 @@ import { neon } from "@neondatabase/serverless";
 
 export const sql = neon(process.env.DATABASE_URL);
 
-// GitHub Pages (production) and localhost (dev) are the only expected callers.
+// GitHub Pages is the canonical frontend; the Vercel deployment also
+// happens to serve a working copy of it (same build, different base path)
+// since Vercel builds the whole project — allow it too so that copy isn't
+// silently broken for anyone using it.
 const ALLOWED_ORIGINS = new Set([
   "https://bnicol82.github.io",
+  "https://keeperstat.vercel.app",
   "http://localhost:5173",
 ]);
 

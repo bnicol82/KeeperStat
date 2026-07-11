@@ -1,21 +1,27 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { sql } from "./db.js";
 
-const AUTH_BASE_URL = process.env.NEON_AUTH_BASE_URL;
-const JWKS = createRemoteJWKSet(new URL(`${AUTH_BASE_URL}/.well-known/jwks.json`));
-
-// Verifies the request's bearer token against Neon Auth's JWKS and returns
-// the authenticated user's id (the JWT `sub` claim), or null if missing/invalid.
+// Validates the request's bearer token by looking it up directly in Neon
+// Auth's own session table (queryable in our same Neon database) and
+// returns the associated user's id, or null if missing/invalid/expired.
+//
+// This intentionally avoids Neon Auth's HTTP session-lookup endpoints
+// (getSession()/token), which depend on a cookie set on Neon Auth's own
+// domain — a cross-site cookie from this app's origin that iOS Safari
+// blocks under Intelligent Tracking Prevention (and standalone "Add to
+// Home Screen" apps run with ITP forced on regardless of the user's actual
+// Safari settings). The session token itself is handed to the client
+// directly in the sign-in/sign-up response body, so no cookie is ever
+// needed to use it.
 export async function getAuthedUserId(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice("Bearer ".length);
+  if (!token) return null;
 
-  try {
-    const { payload } = await jwtVerify(token, JWKS);
-    return payload.sub ?? null;
-  } catch {
-    return null;
-  }
+  const [row] = await sql`
+    SELECT "userId" FROM neon_auth.session WHERE token = ${token} AND "expiresAt" > now()
+  `;
+  return row?.userId ?? null;
 }
 
 export async function requireUser(req, res) {

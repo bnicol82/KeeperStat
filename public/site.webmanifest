@@ -2,13 +2,13 @@
   "name": "KeeperStat",
   "short_name": "KeeperStat",
   "description": "Track goalkeeper performance, matches, and development.",
-  "start_url": "/KeeperStat/",
-  "scope": "/KeeperStat/",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#050505",
   "theme_color": "#050505",
   "icons": [
-    { "src": "/KeeperStat/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/KeeperStat/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }

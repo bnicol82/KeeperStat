@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { api } from "./api.js";
-import { authClient, refreshAuthToken, setCachedAuthToken } from "./authClient.js";
+import { api, setUnauthorizedHandler } from "./api.js";
+import { authClient, getAuthToken, setCachedAuthToken } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import welcomeBg from "./assets/welcome-bg.webp";
@@ -394,7 +394,10 @@ const Login = ({ onAuthenticated, onBack }) => {
         setError(result.error.message || "Something went wrong. Please try again.");
         return;
       }
-      await refreshAuthToken();
+      // The session token is right here in the response body — no need to
+      // ask Neon Auth for it again via a cookie-dependent call.
+      const token = result?.data?.token ?? result?.data?.session?.token ?? null;
+      setCachedAuthToken(token);
       onAuthenticated();
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
@@ -1572,17 +1575,24 @@ export default function KeeperStat() {
   const [fixturesByKeeper, setFixturesByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
 
-  // Resume an existing real session on reload, so logging in sticks.
+  // Resume an existing real session on reload, so logging in sticks. This is
+  // a plain localStorage read — no network round trip, so nothing here can
+  // be silently dropped by iOS Safari's cross-site cookie blocking. If the
+  // cached token has actually expired, the first API call below 401s and
+  // setUnauthorizedHandler (registered further down) drops us back to
+  // Welcome instead of getting stuck.
   useEffect(() => {
-    let cancelled = false;
-    refreshAuthToken().then((token) => {
-      if (!cancelled && token) {
-        setMode("auth");
-        go("dashboard");
-      }
-    });
-    return () => { cancelled = true; };
+    if (getAuthToken()) {
+      setMode("auth");
+      go("dashboard");
+    }
   }, []);
+
+  // No dependency array: re-registers every render so the closure always
+  // sees the current `mode`, rather than whatever it was at mount.
+  useEffect(() => {
+    setUnauthorizedHandler(() => handleLogout());
+  });
 
   useEffect(() => {
     if (!mode) return;
