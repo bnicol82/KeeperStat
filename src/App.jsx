@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "./api.js";
 import { parseScheduleText } from "./scheduleImport.js";
+import welcomeBg from "./assets/welcome-bg.webp";
 
 /* ============================================================
    KEEPERSTAT — Goalkeeper tracking app prototype
@@ -353,19 +354,15 @@ const LineChart = ({ data, height = 160 }) => {
 
 // ---------- 1. Welcome ----------
 const Welcome = ({ go }) => (
-  <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "radial-gradient(ellipse at 50% 30%, #1c2b12 0%, #050505 65%)", position: "relative", overflow: "hidden" }}>
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "calc(env(safe-area-inset-top, 0px) + 40px) 28px calc(env(safe-area-inset-bottom, 0px) + 24px)", position: "relative", overflowY: "auto" }}>
-      {/* stadium lights */}
-      <div style={{ position: "absolute", top: 90, left: -30, width: 130, height: 130, background: "radial-gradient(circle, rgba(255,255,255,.14), transparent 70%)" }} />
-      <div style={{ position: "absolute", top: 60, right: -30, width: 150, height: 150, background: "radial-gradient(circle, rgba(255,255,255,.12), transparent 70%)" }} />
-      {/* crest */}
-      <div style={{ width: 74, height: 82, background: `linear-gradient(160deg, #262626, #0c0c0c)`, border: `2.5px solid ${C.white}`, borderRadius: "10px 10px 50% 50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, marginBottom: 16, boxShadow: "0 10px 24px rgba(0,0,0,.6), inset 0 2px 4px rgba(255,255,255,.15), inset 0 -6px 10px rgba(0,0,0,.4)" }}>🧤</div>
-      <div style={{ fontFamily: fontCond, fontStyle: "italic", fontWeight: 800, fontSize: 46, lineHeight: 0.95, textAlign: "center", letterSpacing: 1 }}>
-        <span style={{ color: C.white, textShadow: "0 3px 8px rgba(0,0,0,.6)" }}>KEEPER</span><br />
-        <span style={{ color: C.orange, textShadow: "0 3px 12px rgba(255,92,0,.5)" }}>STAT</span>
-      </div>
-      <div style={{ fontSize: 12, letterSpacing: 3.5, color: "#CFCFCF", fontWeight: 600, marginTop: 10 }}>DEVELOP. PERFORM. ELEVATE.</div>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", fontSize: 110, filter: "drop-shadow(0 14px 26px rgba(0,0,0,.6)) drop-shadow(0 0 30px rgba(140,226,27,.2))" }}>🥅</div>
+  <div
+    style={{
+      flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-end",
+      backgroundImage: `url(${welcomeBg})`, backgroundSize: "cover", backgroundPosition: "center",
+      position: "relative", overflow: "hidden",
+    }}
+  >
+    <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.8) 100%)" }} />
+    <div style={{ position: "relative", padding: `24px 28px calc(env(safe-area-inset-bottom, 0px) + 24px)` }}>
       <button onClick={() => go("tracker")} className="btn3d btn3d-orange" style={{ width: "100%", padding: "16px", borderRadius: 30, fontFamily: fontCond, fontWeight: 700, fontSize: 19, letterSpacing: 1.5 }}>
         GET STARTED
       </button>
@@ -394,8 +391,9 @@ const BigButton = ({ accent, icon, lines, onClick, disabled }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, baseline }) => {
-  const [opponentInput, setOpponentInput] = useState("");
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, baseline, fixtures }) => {
+  const nextFixture = fixtures?.[0];
+  const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
   if (matchStatus === "idle") {
     return (
@@ -410,8 +408,13 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               onChange={(e) => setOpponentInput(e.target.value)}
               placeholder="e.g. River City FC"
               className="input-well"
-              style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
+              style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: nextFixture ? 6 : 12 }}
             />
+            {nextFixture && (
+              <div style={{ fontSize: 11, color: C.orange, fontWeight: 600, marginBottom: 12 }}>
+                From your schedule{nextFixture.date ? ` · ${nextFixture.date}` : ""}
+              </div>
+            )}
             <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Team</div>
             <div style={{ fontSize: 14, color: C.white, fontWeight: 600 }}>{activeKeeper.team}</div>
           </Card>
@@ -1544,6 +1547,7 @@ export default function KeeperStat() {
         matchStatus={matchStatus} baseline={baseline}
         onStartMatch={startMatch} onEndMatch={endMatch} onResumeMatch={resumeMatch}
         onSaveMatch={saveMatchToHistory} onDiscardMatch={discardMatch}
+        fixtures={fixtures}
       />
     ),
     stats: <MatchStats match={match} go={go} baseline={baseline} />,

@@ -19,9 +19,26 @@
       }
       #root { height: 100%; }
       /* 100vh first as a fallback for browsers without dvh support (the
-         invalid dvh declaration is then simply ignored by them). */
-      .app-shell { height: 100vh; height: 100dvh; }
+         invalid dvh declaration is then simply ignored by them), then dvh,
+         then --app-height once the script below measures the real visible
+         viewport (accounts for the iOS on-screen keyboard, which dvh does
+         not — without this the bottom nav ends up hidden behind/cut off
+         by the keyboard when a text input is focused). */
+      .app-shell { height: 100vh; height: 100dvh; height: var(--app-height, 100dvh); }
     </style>
+    <script>
+      (function () {
+        function setAppHeight() {
+          var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+          document.documentElement.style.setProperty('--app-height', h + 'px');
+        }
+        setAppHeight();
+        window.addEventListener('resize', setAppHeight);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', setAppHeight);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
