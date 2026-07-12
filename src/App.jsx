@@ -131,7 +131,7 @@ const MoreSheet = ({ open, onClose, onNav }) => (
   </>
 );
 
-// ---------- share sheet (match report → text summary, copy / native share) ----------
+// ---------- share sheet (match report → text summary, copy / native share / shareable image) ----------
 const buildShareText = ({ keeperName, m, score, savePct }) => {
   const lines = [
     "🧤 KeeperStat Match Report",
@@ -145,9 +145,220 @@ const buildShareText = ({ keeperName, m, score, savePct }) => {
   return lines.filter((l) => l !== "").join("\n");
 };
 
+// ---- shareable PNG stat-card generation (Canvas 2D, no image libraries) ----
+const SHARE_IMG_W = 1080;
+const SHARE_IMG_H = 1080;
+
+// Manual rounded-rect path — ctx.roundRect isn't universal on older iOS Safari.
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+// Shrinks font size until `text` fits maxWidth (floors at minSize). Sets ctx.font
+// as a side effect so the caller can draw immediately after calling this.
+function fitTextSize(ctx, text, family, weight, maxWidth, maxSize, minSize) {
+  let size = maxSize;
+  while (size > minSize) {
+    ctx.font = `${weight} ${size}px '${family}'`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 2;
+  }
+  return size;
+}
+
+// Manual letter-spacing (canvas letterSpacing support is inconsistent on iOS
+// Safari) — draws `text` centered at (cx, y) using the currently-set ctx.font.
+function drawSpacedText(ctx, text, cx, y, spacing) {
+  const chars = text.split("");
+  const widths = chars.map((c) => ctx.measureText(c).width);
+  const total = widths.reduce((a, w) => a + w, 0) + spacing * (chars.length - 1);
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  let x = cx - total / 2;
+  chars.forEach((c, i) => {
+    ctx.fillText(c, x, y);
+    x += widths[i] + spacing;
+  });
+  ctx.textAlign = prevAlign;
+}
+
+function slugify(str) {
+  const s = str.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return s || "match";
+}
+
+// Best-effort webfont readiness — the app's fonts load via a @import inside a
+// <style> tag, so a canvas drawn too early could fall back to a default sans.
+// Never throws and never blocks indefinitely if the Font Loading API is
+// unsupported or a font fails to load.
+async function ensureShareFontsReady() {
+  try {
+    if (!document.fonts) return;
+    await Promise.all([
+      document.fonts.load("800 100px 'Barlow Condensed'"),
+      document.fonts.load("700 100px 'Barlow Condensed'"),
+      document.fonts.load("600 40px 'Barlow'"),
+    ]);
+    if (document.fonts.ready) await document.fonts.ready;
+  } catch {
+    /* fall back to default sans-serif silently */
+  }
+}
+
+// Fallback (and failure-recovery) path for browsers/desktops without
+// navigator.share file support — triggers a normal browser download.
+function triggerImageDownload(file) {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// Draws a shareable PNG "stat card" mirroring this sheet's preview Card, since
+// once the image leaves the app (Messages, Instagram) there's no surrounding
+// screen context — resolves to a PNG Blob (or null if canvas encoding fails).
+async function buildShareImage({ keeperName, m, score, savePct }) {
+  await ensureShareFontsReady();
+  const canvas = document.createElement("canvas");
+  canvas.width = SHARE_IMG_W;
+  canvas.height = SHARE_IMG_H;
+  const ctx = canvas.getContext("2d");
+  const cx = SHARE_IMG_W / 2;
+
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, SHARE_IMG_W, SHARE_IMG_H);
+
+  const M = 56, cardX = M, cardY = M, cardW = SHARE_IMG_W - 2 * M, cardH = SHARE_IMG_H - 2 * M, R = 40;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.45)";
+  ctx.shadowBlur = 40;
+  ctx.shadowOffsetY = 10;
+  roundRectPath(ctx, cardX, cardY, cardW, cardH, R);
+  const cardGrad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+  cardGrad.addColorStop(0, "#181818");
+  cardGrad.addColorStop(1, "#0f0f0f");
+  ctx.fillStyle = cardGrad;
+  ctx.fill();
+  ctx.restore(); // reset shadow before further draws
+  roundRectPath(ctx, cardX, cardY, cardW, cardH, R);
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+
+  ctx.font = "800 56px 'Barlow Condensed'";
+  ctx.fillStyle = C.orange;
+  ctx.fillText("🧤 KEEPERSTAT", cx, cardY + 100);
+
+  ctx.font = "700 24px 'Barlow Condensed'";
+  ctx.fillStyle = C.gray;
+  drawSpacedText(ctx, "MATCH REPORT", cx, cardY + 150, 4);
+
+  const vsText = `${keeperName} vs ${m.opp}`;
+  const vsSize = fitTextSize(ctx, vsText, "Barlow", 600, cardW - 160, 38, 22);
+  ctx.font = `600 ${vsSize}px 'Barlow'`;
+  ctx.fillStyle = C.gray;
+  ctx.fillText(vsText, cx, cardY + 240);
+
+  const resultText = `${m.goalsScored}–${m.ga}`;
+  ctx.font = "800 44px 'Barlow Condensed'";
+  const pillTextWidth = ctx.measureText(resultText).width;
+  const pillW = pillTextWidth + 90, pillH = 70;
+  const pillX = cx - pillW / 2, pillY = cardY + 270;
+  const isWin = m.res.startsWith("W"), isLoss = m.res.startsWith("L");
+  const pillGrad = ctx.createLinearGradient(0, pillY, 0, pillY + pillH);
+  if (isWin) { pillGrad.addColorStop(0, "#43a047"); pillGrad.addColorStop(1, C.greenMid); }
+  else if (isLoss) { pillGrad.addColorStop(0, "#e57373"); pillGrad.addColorStop(1, C.red); }
+  else { pillGrad.addColorStop(0, "#ffc14d"); pillGrad.addColorStop(1, C.gold); }
+  roundRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+  ctx.fillStyle = pillGrad;
+  ctx.fill();
+  ctx.fillStyle = isWin || isLoss ? "#ffffff" : "#1a1200";
+  ctx.fillText(resultText, cx, pillY + pillH / 2 + 15);
+
+  ctx.font = "700 28px 'Barlow Condensed'";
+  ctx.fillStyle = C.gold;
+  drawSpacedText(ctx, "GK IMPACT SCORE", cx, cardY + 430, 3);
+
+  ctx.font = "800 220px 'Barlow Condensed'";
+  ctx.fillStyle = C.green;
+  ctx.shadowColor = `${C.green}55`;
+  ctx.shadowBlur = 30;
+  ctx.fillText(String(score), cx, cardY + 660);
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
+
+  ctx.font = "700 48px 'Barlow Condensed'";
+  ctx.fillStyle = C.green;
+  drawSpacedText(ctx, scoreWord(score), cx, cardY + 720, 3);
+
+  const statsText = `${m.saves} saves · ${savePct}% save rate${m.ga === 0 ? " · Clean sheet" : ""}`;
+  const statsSize = fitTextSize(ctx, statsText, "Barlow", 600, cardW - 160, 34, 20);
+  ctx.font = `600 ${statsSize}px 'Barlow'`;
+  ctx.fillStyle = C.gray;
+  ctx.fillText(statsText, cx, cardY + 800);
+
+  ctx.font = "500 22px 'Barlow'";
+  ctx.fillStyle = C.grayDark;
+  ctx.fillText("Track every save. — KeeperStat", cx, cardY + cardH - 40);
+
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
+}
+
 const ShareSheet = ({ open, onClose, data }) => {
   const [copied, setCopied] = useState(false);
-  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const [imgState, setImgState] = useState("idle"); // idle | loading | ready | error
+  const [canShareFiles, setCanShareFiles] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const shareFileRef = useRef(null);
+  const canNativeShareText = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  // Pre-generates the image the moment the sheet opens (rather than inside the
+  // click handler) so the Share Image button's own click has no await before
+  // navigator.share — iOS Safari silently rejects file shares that aren't
+  // triggered close enough to the user gesture.
+  useEffect(() => {
+    let cancelled = false;
+    if (!open || !data) {
+      setImgState("idle");
+      shareFileRef.current = null;
+      return;
+    }
+    setImgState("loading");
+    (async () => {
+      try {
+        const blob = await buildShareImage(data);
+        if (cancelled) return;
+        if (!blob) {
+          setImgState("error");
+          return;
+        }
+        const file = new File([blob], `keeperstat-vs-${slugify(data.m.opp)}.png`, { type: "image/png" });
+        shareFileRef.current = file;
+        setCanShareFiles(!!(navigator.canShare && navigator.canShare({ files: [file] })));
+        setImgState("ready");
+      } catch {
+        if (!cancelled) setImgState("error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, data]);
 
   const handleCopy = async () => {
     if (!data) return;
@@ -167,6 +378,27 @@ const ShareSheet = ({ open, onClose, data }) => {
       /* user cancelled or share unsupported — no-op */
     }
   };
+  const handleShareImage = async () => {
+    const file = shareFileRef.current;
+    if (!file || sharing || imgState !== "ready") return;
+    setSharing(true);
+    try {
+      if (canShareFiles) {
+        await navigator.share({ files: [file], title: "KeeperStat Match Report", text: buildShareText(data) });
+      } else {
+        triggerImageDownload(file);
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") triggerImageDownload(file);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const imageButtonLabel =
+    imgState === "loading" ? "Preparing Image…" :
+    imgState === "error" ? "Image Unavailable" :
+    canShareFiles ? "Share Image" : "Download Image";
 
   return (
     <>
@@ -188,12 +420,20 @@ const ShareSheet = ({ open, onClose, data }) => {
               <div style={{ fontFamily: fontCond, fontSize: 14, fontWeight: 700, color: C.green, letterSpacing: 1.5 }}>{scoreWord(data.score)}</div>
               <div style={{ fontSize: 12.5, color: C.grayDark, marginTop: 8 }}>{data.m.saves} saves · {data.savePct}% save rate{data.m.ga === 0 ? " · Clean sheet" : ""}</div>
             </Card>
-            <button onClick={handleCopy} className="btn3d btn3d-orange" style={{ width: "100%", padding: 14, borderRadius: 14, fontFamily: fontCond, fontWeight: 700, fontSize: 15, letterSpacing: 1 }}>
+            <button
+              onClick={handleShareImage}
+              disabled={imgState !== "ready" || sharing}
+              className="btn3d btn3d-orange"
+              style={{ width: "100%", padding: 14, borderRadius: 14, fontFamily: fontCond, fontWeight: 700, fontSize: 15, letterSpacing: 1, opacity: imgState === "ready" ? 1 : 0.55 }}
+            >
+              {imageButtonLabel}
+            </button>
+            <button onClick={handleCopy} className="btn3d btn3d-outline" style={{ width: "100%", padding: 13, borderRadius: 12, marginTop: 10, fontWeight: 700, fontSize: 14 }}>
               {copied ? "Copied ✓" : "Copy Summary"}
             </button>
-            {canNativeShare && (
+            {canNativeShareText && !canShareFiles && imgState !== "loading" && (
               <button onClick={handleNativeShare} className="btn3d btn3d-outline" style={{ width: "100%", padding: 13, borderRadius: 12, marginTop: 10, fontWeight: 700, fontSize: 14 }}>
-                Share…
+                Share Text Only…
               </button>
             )}
           </>
