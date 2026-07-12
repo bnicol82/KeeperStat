@@ -33,6 +33,7 @@ export function createDemoApi() {
       focusArea: { title: "Low Diving Saves", note: "Work on technique and explosiveness" },
       nextGoal: "Increase distribution accuracy above 80%",
       rankingsUrl: null,
+      isPublic: false,
       showGMIS: true,
       notifPrefs: { matchReminders: true, weeklySummary: false },
     },
@@ -46,7 +47,7 @@ export function createDemoApi() {
     listKeepers: async () => keepers,
 
     createKeeper: async (k) => {
-      const keeper = { id: uid(), focusArea: null, nextGoal: null, rankingsUrl: null, showGMIS: true, notifPrefs: { matchReminders: true, weeklySummary: false }, ...k };
+      const keeper = { id: uid(), focusArea: null, nextGoal: null, rankingsUrl: null, isPublic: false, showGMIS: true, notifPrefs: { matchReminders: true, weeklySummary: false }, ...k };
       keepers = [...keepers, keeper];
       matchesByKeeper[keeper.id] = [];
       fixturesByKeeper[keeper.id] = [];
@@ -100,5 +101,11 @@ export function createDemoApi() {
 
     // No real storage in demo mode — just a local object URL for this tab's session.
     uploadKeeperPhoto: async (keeperId, file) => URL.createObjectURL(file),
+
+    // KeeperStat Rankings is a cross-account leaderboard — demo mode has no
+    // real account, so there's nothing to rank. App.jsx never actually
+    // calls this (it gates the Rankings screen on auth mode), but it's
+    // kept here so this object's shape still mirrors src/api.js.
+    listRankings: async () => [],
   };
 }
