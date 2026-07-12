@@ -57,7 +57,7 @@ jobs:
         run: npm run db:migrate
         env:
           # pooled connection; do not log this value, it contains DB credentials
-          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
+          DATABASE_URL: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
 
   delete_neon_branch:
     name: Delete Neon Branch
