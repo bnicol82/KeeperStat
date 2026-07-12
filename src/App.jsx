@@ -376,12 +376,36 @@ const Welcome = ({ onDemo, onLogin }) => (
 );
 
 const Login = ({ onAuthenticated, onBack }) => {
-  const [mode, setMode] = useState("signin"); // signin | signup
+  const [mode, setMode] = useState("signin"); // signin | signup | verify | forgot | reset
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Better Auth surfaces an unverified-email sign-in attempt as an error
+  // (code or message mentioning "verification") rather than a distinct
+  // response shape, so this is the only reliable way to detect it and
+  // route the user into the OTP verification screen instead of just
+  // showing them a raw error string.
+  const isUnverifiedError = (err) => /verif/i.test(err?.code || "") || /verif/i.test(err?.message || "");
+
+  const startVerification = async (targetEmail) => {
+    setEmail(targetEmail);
+    setMode("verify");
+    setError("");
+    setInfo("");
+    try {
+      const result = await authClient.emailOtp.sendVerificationOtp({ email: targetEmail, type: "email-verification" });
+      if (result?.error) setError(result.error.message || "Couldn't send a verification code. Try resending.");
+      else setInfo(`Code sent to ${targetEmail}.`);
+    } catch (err) {
+      setError(err.message || "Couldn't send a verification code. Try resending.");
+    }
+  };
 
   const submit = async () => {
     setError("");
@@ -391,7 +415,15 @@ const Login = ({ onAuthenticated, onBack }) => {
         ? await authClient.signIn.email({ email, password })
         : await authClient.signUp.email({ name: name.trim() || email.split("@")[0], email, password });
       if (result?.error) {
+        if (isUnverifiedError(result.error)) {
+          await startVerification(email);
+          return;
+        }
         setError(result.error.message || "Something went wrong. Please try again.");
+        return;
+      }
+      if (mode === "signup" && result?.data?.user?.emailVerified === false) {
+        await startVerification(email);
         return;
       }
       // The session token is right here in the response body — no need to
@@ -406,62 +438,206 @@ const Login = ({ onAuthenticated, onBack }) => {
     }
   };
 
+  const submitVerify = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await authClient.emailOtp.verifyEmail({ email, otp });
+      if (result?.error) {
+        setError(result.error.message || "That code didn't work. Please try again.");
+        return;
+      }
+      const token = result?.data?.token ?? result?.data?.session?.token ?? null;
+      if (token) {
+        setCachedAuthToken(token);
+        onAuthenticated();
+      } else {
+        setInfo("Email verified — log in to continue.");
+        setMode("signin");
+        setOtp("");
+      }
+    } catch (err) {
+      setError(err.message || "That code didn't work. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitForgot = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await authClient.forgetPassword.emailOtp({ email });
+      if (result?.error) {
+        setError(result.error.message || "Couldn't send a reset code. Please try again.");
+        return;
+      }
+      setInfo(`Reset code sent to ${email}.`);
+      setMode("reset");
+    } catch (err) {
+      setError(err.message || "Couldn't send a reset code. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitReset = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await authClient.emailOtp.resetPassword({ email, otp, password: newPassword });
+      if (result?.error) {
+        setError(result.error.message || "That code didn't work. Please try again.");
+        return;
+      }
+      setInfo("Password reset. Log in with your new password.");
+      setMode("signin");
+      setPassword("");
+      setOtp("");
+      setNewPassword("");
+    } catch (err) {
+      setError(err.message || "That code didn't work. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const titles = { signin: "Log In", signup: "Create Account", verify: "Verify Your Email", forgot: "Reset Password", reset: "Reset Password" };
   const canSubmit = email.trim() && password.length >= 8 && !loading;
+  const canSubmitVerify = otp.trim().length > 0 && !loading;
+  const canSubmitForgot = email.trim() && !loading;
+  const canSubmitReset = otp.trim().length > 0 && newPassword.length >= 8 && !loading;
+
+  const field = (label, value, onChange, opts = {}) => (
+    <>
+      <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>{label}</div>
+      <input
+        type={opts.type || "text"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={opts.placeholder}
+        className="input-well"
+        style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: opts.last ? 0 : 12 }}
+        onKeyDown={opts.onEnter ? (e) => { if (e.key === "Enter") opts.onEnter(); } : undefined}
+      />
+    </>
+  );
+
+  const backToSignin = () => { setMode("signin"); setError(""); setInfo(""); };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, background: C.bg }}>
-      <Header title={mode === "signin" ? "Log In" : "Create Account"} left="‹" onLeft={onBack} />
+      <Header title={titles[mode]} left="‹" onLeft={mode === "signin" || mode === "signup" ? onBack : backToSignin} />
       <div style={{ padding: "0 16px 16px", flex: 1, overflowY: "auto" }}>
-        <Card>
-          {mode === "signup" && (
-            <>
-              <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Name</div>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-                className="input-well"
-                style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
-              />
-            </>
-          )}
-          <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Email</div>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="input-well"
-            style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
-          />
-          <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Password</div>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "signup" ? "At least 8 characters" : "Password"}
-            className="input-well"
-            style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none" }}
-            onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) submit(); }}
-          />
-        </Card>
+        {(mode === "signin" || mode === "signup") && (
+          <>
+            <Card>
+              {mode === "signup" && field("Name", name, setName, { placeholder: "Your name" })}
+              {field("Email", email, setEmail, { type: "email", placeholder: "you@example.com" })}
+              {field("Password", password, setPassword, { type: "password", placeholder: mode === "signup" ? "At least 8 characters" : "Password", last: true, onEnter: () => canSubmit && submit() })}
+            </Card>
+            {mode === "signin" && (
+              <button
+                onClick={() => { setMode("forgot"); setError(""); setInfo(""); }}
+                style={{ background: "none", border: "none", color: C.gray, fontSize: 12.5, fontWeight: 600, marginTop: 10, cursor: "pointer", padding: 0 }}
+              >
+                Forgot password?
+              </button>
+            )}
+            {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+            <button
+              onClick={submit}
+              disabled={!canSubmit}
+              className="btn3d btn3d-orange"
+              style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmit ? 1 : 0.5 }}
+            >
+              {loading ? "…" : mode === "signin" ? "LOG IN" : "CREATE ACCOUNT"}
+            </button>
+            <button
+              onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setInfo(""); }}
+              style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
+            >
+              {mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Log in"}
+            </button>
+          </>
+        )}
 
-        {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+        {mode === "verify" && (
+          <>
+            <Card>
+              <div style={{ fontSize: 13.5, color: "#DADADA", lineHeight: 1.5, marginBottom: 12 }}>
+                We sent a verification code to <strong style={{ color: C.white }}>{email}</strong>. Enter it below to confirm your email.
+              </div>
+              {field("Verification Code", otp, setOtp, { placeholder: "6-digit code", last: true, onEnter: () => canSubmitVerify && submitVerify() })}
+            </Card>
+            {info && <div style={{ color: C.green, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{info}</div>}
+            {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+            <button
+              onClick={submitVerify}
+              disabled={!canSubmitVerify}
+              className="btn3d btn3d-orange"
+              style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmitVerify ? 1 : 0.5 }}
+            >
+              {loading ? "…" : "VERIFY EMAIL"}
+            </button>
+            <button
+              onClick={() => startVerification(email)}
+              disabled={loading}
+              style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
+            >
+              Resend code
+            </button>
+          </>
+        )}
 
-        <button
-          onClick={submit}
-          disabled={!canSubmit}
-          className="btn3d btn3d-orange"
-          style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmit ? 1 : 0.5 }}
-        >
-          {loading ? "…" : mode === "signin" ? "LOG IN" : "CREATE ACCOUNT"}
-        </button>
-        <button
-          onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}
-          style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
-        >
-          {mode === "signin" ? "Don't have an account? Sign up" : "Already have an account? Log in"}
-        </button>
+        {mode === "forgot" && (
+          <>
+            <Card>
+              <div style={{ fontSize: 13.5, color: "#DADADA", lineHeight: 1.5, marginBottom: 12 }}>
+                Enter your account email and we'll send you a code to reset your password.
+              </div>
+              {field("Email", email, setEmail, { type: "email", placeholder: "you@example.com", last: true, onEnter: () => canSubmitForgot && submitForgot() })}
+            </Card>
+            {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+            <button
+              onClick={submitForgot}
+              disabled={!canSubmitForgot}
+              className="btn3d btn3d-orange"
+              style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmitForgot ? 1 : 0.5 }}
+            >
+              {loading ? "…" : "SEND RESET CODE"}
+            </button>
+          </>
+        )}
+
+        {mode === "reset" && (
+          <>
+            <Card>
+              <div style={{ fontSize: 13.5, color: "#DADADA", lineHeight: 1.5, marginBottom: 12 }}>
+                Enter the code sent to <strong style={{ color: C.white }}>{email}</strong> and choose a new password.
+              </div>
+              {field("Reset Code", otp, setOtp, { placeholder: "6-digit code" })}
+              {field("New Password", newPassword, setNewPassword, { type: "password", placeholder: "At least 8 characters", last: true, onEnter: () => canSubmitReset && submitReset() })}
+            </Card>
+            {info && <div style={{ color: C.green, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{info}</div>}
+            {error && <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+            <button
+              onClick={submitReset}
+              disabled={!canSubmitReset}
+              className="btn3d btn3d-orange"
+              style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: canSubmitReset ? 1 : 0.5 }}
+            >
+              {loading ? "…" : "RESET PASSWORD"}
+            </button>
+            <button
+              onClick={submitForgot}
+              disabled={loading}
+              style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
+            >
+              Resend code
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -760,6 +936,14 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
   const ga = last5.reduce((a, m) => a + m.ga, 0), gaPrev = prev5.reduce((a, m) => a + m.ga, 0);
   const cs = last5.filter((m) => m.ga === 0).length, csPrev = prev5.filter((m) => m.ga === 0).length;
 
+  const distCompL = last5.reduce((a, m) => a + m.distributionCompleted, 0), distAttL = last5.reduce((a, m) => a + m.distributionAttempted, 0);
+  const distCompP = prev5.reduce((a, m) => a + m.distributionCompleted, 0), distAttP = prev5.reduce((a, m) => a + m.distributionAttempted, 0);
+  const distPctL = distAttL ? Math.round((distCompL / distAttL) * 100) : 0;
+  const distPctP = distAttP ? Math.round((distCompP / distAttP) * 100) : 0;
+  const errorsL = last5.reduce((a, m) => a + m.errors, 0), errorsP = prev5.reduce((a, m) => a + m.errors, 0);
+  const handlingL = last5.reduce((a, m) => a + m.claims + m.punches, 0), handlingP = prev5.reduce((a, m) => a + m.claims + m.punches, 0);
+  const clutchL = last5.reduce((a, m) => a + m.bigSaves + m.penaltySaves, 0), clutchP = prev5.reduce((a, m) => a + m.bigSaves + m.penaltySaves, 0);
+
   const cell = (label, value, d) => (
     <Card style={{ flex: 1, padding: "12px 14px" }}>
       <div style={{ fontSize: 12, color: C.gray, fontWeight: 600 }}>{label}</div>
@@ -795,6 +979,14 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
         <div style={{ display: "flex", gap: 10 }}>
           {cell("Clean Sheets", cs, hasPrev ? trendDelta(cs, csPrev) : { text: "—", color: C.grayDark })}
           {cell("Goals Against", ga, hasPrev ? trendDelta(ga, gaPrev, "", false) : { text: "—", color: C.grayDark })}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          {cell("Distribution %", `${distPctL}%`, hasPrev ? trendDelta(distPctL, distPctP, "%") : { text: "—", color: C.grayDark })}
+          {cell("Errors", errorsL, hasPrev ? trendDelta(errorsL, errorsP, "", false) : { text: "—", color: C.grayDark })}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          {cell("Claims + Punches", handlingL, hasPrev ? trendDelta(handlingL, handlingP, "", true, true) : { text: "—", color: C.grayDark })}
+          {cell("Big + Penalty Saves", clutchL, hasPrev ? trendDelta(clutchL, clutchP, "", true, true) : { text: "—", color: C.grayDark })}
         </div>
         <button onClick={() => go("training")} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 16, padding: 14, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 14 }}>
           View Training Recommendations →
@@ -1005,6 +1197,15 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {cellBox("Save %", `${savePct}%`)}{cellBox("Clean Sheet", m.ga === 0 ? "Yes" : "No")}{cellBox("Minutes Played", m.minutesPlayed ? `${m.minutesPlayed}'` : "—")}
         </div>
+        <Card style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>GOALKEEPER ACTIONS</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {cellBox("Distribution", `${m.distributionCompleted}/${m.distributionAttempted}`)}{cellBox("Claims", m.claims)}{cellBox("Punches", m.punches)}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("Penalty Saves", m.penaltySaves)}{cellBox("Big Saves", m.bigSaves)}{cellBox("Errors", m.errors)}
+          </div>
+        </Card>
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
@@ -1068,6 +1269,14 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
   const avgSavePct = totalShots ? Math.round((totalSaves / totalShots) * 100) : 0;
   const totalCS = scored.filter((m) => m.ga === 0).length;
   const totalGA = scored.reduce((a, m) => a + m.ga, 0);
+  const totalDistComp = scored.reduce((a, m) => a + m.distributionCompleted, 0);
+  const totalDistAtt = scored.reduce((a, m) => a + m.distributionAttempted, 0);
+  const distPct = totalDistAtt ? Math.round((totalDistComp / totalDistAtt) * 100) : 0;
+  const totalClaims = scored.reduce((a, m) => a + m.claims, 0);
+  const totalPunches = scored.reduce((a, m) => a + m.punches, 0);
+  const totalPenaltySaves = scored.reduce((a, m) => a + m.penaltySaves, 0);
+  const totalBigSaves = scored.reduce((a, m) => a + m.bigSaves, 0);
+  const totalErrors = scored.reduce((a, m) => a + m.errors, 0);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Season Progress" left="‹" onLeft={() => go("dashboard")} />
@@ -1094,6 +1303,15 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           {cellBox("Avg. Save %", `${avgSavePct}%`)}{cellBox("Clean Sheets", totalCS)}{cellBox("Goals Against", totalGA)}
         </div>
+        <Card style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: C.white, marginBottom: 10 }}>Season Goalkeeper Actions</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {cellBox("Distribution", `${distPct}%`)}{cellBox("Claims", totalClaims)}{cellBox("Punches", totalPunches)}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("Penalty Saves", totalPenaltySaves)}{cellBox("Big Saves", totalBigSaves)}{cellBox("Errors", totalErrors)}
+          </div>
+        </Card>
         <Card style={{ marginTop: 12, padding: 0, overflow: "hidden" }}>
           {scored.slice().reverse().map((m, i) => (
             <button key={m.n} onClick={() => go("report", m.n)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "none", border: "none", borderTop: i ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
@@ -1405,7 +1623,7 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 );
 
 const Settings = ({
-  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
+  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
   matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto,
 }) => {
   const session = authClient.useSession();
@@ -1432,14 +1650,25 @@ const Settings = ({
       <Card style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, padding: "14px 14px 6px" }}>KEEPERS</div>
         {keepers.map((k) => (
-          <button key={k.id} className="sheet-row" style={{ padding: "10px 14px" }} onClick={() => selectKeeper(k.id)}>
-            <Avatar keeper={k} />
-            <span className="sheet-row-text">
-              <span className="sheet-row-title">{k.name}</span>
-              <span className="sheet-row-desc">{k.team}</span>
-            </span>
-            {k.id === activeKeeper.id && <span style={{ color: C.orange, fontSize: 17, fontWeight: 700 }}>✓</span>}
-          </button>
+          <div key={k.id} className="sheet-row" style={{ padding: "10px 14px" }}>
+            <button onClick={() => selectKeeper(k.id)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 12, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}>
+              <Avatar keeper={k} />
+              <span className="sheet-row-text">
+                <span className="sheet-row-title">{k.name}</span>
+                <span className="sheet-row-desc">{k.team}</span>
+              </span>
+              {k.id === activeKeeper.id && <span style={{ color: C.orange, fontSize: 17, fontWeight: 700 }}>✓</span>}
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm(`Delete ${k.name}? This permanently removes their matches and schedule. This can't be undone.`)) onDeleteKeeper(k.id);
+              }}
+              aria-label={`Delete ${k.name}`}
+              style={{ background: "none", border: "none", color: C.red, fontSize: 17, cursor: "pointer", padding: "4px 2px 4px 8px", flexShrink: 0 }}
+            >
+              🗑
+            </button>
+          </div>
         ))}
         <div style={{ padding: 14 }}>
           <button onClick={addKeeper} className="btn3d btn3d-outline" style={{ width: "100%", padding: 12, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 13 }}>
@@ -1684,6 +1913,19 @@ export default function KeeperStat() {
         .catch((err) => console.error("Failed to load fixtures", err));
     }
   };
+  const deleteKeeper = (id) => {
+    dataApi.deleteKeeper(id)
+      .then(() => {
+        setKeepers((ks) => {
+          const next = ks.filter((k) => k.id !== id);
+          if (activeKeeperId === id) setActiveKeeperId(next[0]?.id ?? null);
+          return next;
+        });
+        setMatchesByKeeper((mb) => { const next = { ...mb }; delete next[id]; return next; });
+        setFixturesByKeeper((fb) => { const next = { ...fb }; delete next[id]; return next; });
+      })
+      .catch((err) => console.error("Failed to delete keeper", err));
+  };
 
   const importFixtures = (items) => {
     dataApi.importFixtures(activeKeeperId, items)
@@ -1871,6 +2113,7 @@ export default function KeeperStat() {
         updateActiveKeeper={updateActiveKeeper}
         selectKeeper={selectKeeper}
         addKeeper={addKeeper}
+        onDeleteKeeper={deleteKeeper}
         showGMIS={showGMIS} setShowGMIS={setShowGMIS}
         notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}
         matches={matches}

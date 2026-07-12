@@ -57,6 +57,13 @@ export function createDemoApi() {
       return keepers.find((k) => k.id === id);
     },
 
+    deleteKeeper: async (id) => {
+      keepers = keepers.filter((k) => k.id !== id);
+      delete matchesByKeeper[id];
+      delete fixturesByKeeper[id];
+      return null;
+    },
+
     listMatches: async (keeperId) => matchesByKeeper[keeperId] || [],
 
     createMatch: async (keeperId, m) => {

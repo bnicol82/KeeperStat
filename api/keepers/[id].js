@@ -47,5 +47,16 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (req.method === "DELETE") {
+    const [existing] = await sql`SELECT id FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
+    if (!existing) {
+      res.status(404).json({ error: "Keeper not found" });
+      return;
+    }
+    await sql`DELETE FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
+    res.status(204).end();
+    return;
+  }
+
   res.status(405).json({ error: "Method not allowed" });
 }
