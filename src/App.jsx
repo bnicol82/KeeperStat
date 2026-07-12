@@ -1436,6 +1436,12 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             {cellBox("Penalty Saves", m.penaltySaves)}{cellBox("Big Saves", m.bigSaves)}{cellBox("Errors", m.errors)}
           </div>
         </Card>
+        {m.notes && (
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>MATCH NOTES</div>
+            <div style={{ fontSize: 14, lineHeight: 1.55, color: "#DADADA", whiteSpace: "pre-wrap" }}>{m.notes}</div>
+          </Card>
+        )}
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
