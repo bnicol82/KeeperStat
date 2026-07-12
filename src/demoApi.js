@@ -32,6 +32,7 @@ export function createDemoApi() {
       level: "youth",
       focusArea: { title: "Low Diving Saves", note: "Work on technique and explosiveness" },
       nextGoal: "Increase distribution accuracy above 80%",
+      rankingsUrl: null,
       showGMIS: true,
       notifPrefs: { matchReminders: true, weeklySummary: false },
     },
@@ -45,7 +46,7 @@ export function createDemoApi() {
     listKeepers: async () => keepers,
 
     createKeeper: async (k) => {
-      const keeper = { id: uid(), focusArea: null, nextGoal: null, showGMIS: true, notifPrefs: { matchReminders: true, weeklySummary: false }, ...k };
+      const keeper = { id: uid(), focusArea: null, nextGoal: null, rankingsUrl: null, showGMIS: true, notifPrefs: { matchReminders: true, weeklySummary: false }, ...k };
       keepers = [...keepers, keeper];
       matchesByKeeper[keeper.id] = [];
       fixturesByKeeper[keeper.id] = [];

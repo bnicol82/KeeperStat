@@ -33,6 +33,7 @@ export function keeperToJson(row) {
     team: row.team,
     level: row.level,
     photoUrl: row.photo_url,
+    rankingsUrl: row.rankings_url,
     focusArea: row.focus_area_title ? { title: row.focus_area_title, note: row.focus_area_note } : null,
     nextGoal: row.next_goal,
     showGMIS: row.show_gmis,

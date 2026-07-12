@@ -63,6 +63,7 @@ const MORE_ITEMS = [
   { key: "development", label: "Keeper Development", icon: "🚀", desc: "Strengths, focus areas & next goal" },
   { key: "parent", label: "Parent View", icon: "⭐", desc: "A simple performance summary" },
   { key: "interview", label: "Interview & Feedback", icon: "🎙️", desc: "Reflection questions after matches" },
+  { key: "rankings", label: "Team Rankings", icon: "🏆", desc: "Your profile on the rankings site" },
   { key: "settings", label: "Settings", icon: "⚙️", desc: "Level of play, scoring & notifications" },
 ];
 
@@ -75,7 +76,7 @@ const TABS = [
 ];
 
 const activeTabFor = (screen) => {
-  if (["report", "training", "development", "parent", "interview", "settings"].includes(screen)) return "more";
+  if (["report", "training", "development", "parent", "interview", "rankings", "settings"].includes(screen)) return "more";
   if (screen === "dashboard") return "dashboard";
   return screen; // tracker, stats, progress
 };
@@ -1419,6 +1420,45 @@ const Interview = ({ go }) => {
   );
 };
 
+// ---------- 11. Team Rankings (external site link) ----------
+const Rankings = ({ go, activeKeeper }) => {
+  const url = activeKeeper.rankingsUrl;
+  const openRankings = () => window.open(url, "_blank", "noopener,noreferrer");
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Header title="Team Rankings" left="‹" onLeft={() => go("dashboard")} />
+      <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
+        {!url ? (
+          <EmptyState
+            icon="🏆"
+            title="No rankings link set yet"
+            sub={`Paste ${activeKeeper.name}'s profile link from usasportstatistics.net (or a similar site) in Settings to see it here.`}
+            cta="Go to Settings"
+            onCta={() => go("settings")}
+          />
+        ) : (
+          <>
+            <Card style={{ textAlign: "center", padding: "28px 20px" }}>
+              <div style={{ fontSize: 40 }}>🏆</div>
+              <div style={{ fontFamily: fontCond, fontSize: 19, fontWeight: 800, color: C.white, marginTop: 10 }}>{activeKeeper.name}'s Rankings Profile</div>
+              <div style={{ fontSize: 12.5, color: C.grayDark, marginTop: 6, wordBreak: "break-all" }}>{url}</div>
+            </Card>
+            <button onClick={openRankings} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
+              OPEN RANKINGS PROFILE ↗
+            </button>
+            <button
+              onClick={() => go("settings")}
+              style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}
+            >
+              Change link
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------- keeper avatar (photo, falling back to initial letter) ----------
 const Avatar = ({ keeper, style }) =>
   keeper.photoUrl ? (
@@ -1704,8 +1744,19 @@ const Settings = ({
           value={activeKeeper.team}
           onChange={(e) => updateActiveKeeper({ team: e.target.value })}
           className="input-well"
-          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none" }}
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Soccer Rankings Profile</div>
+        <input
+          value={activeKeeper.rankingsUrl || ""}
+          onChange={(e) => updateActiveKeeper({ rankingsUrl: e.target.value })}
+          placeholder="https://usasportstatistics.net/..."
+          className="input-well"
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 6 }}
+        />
+        <div style={{ fontSize: 12, color: C.grayDark, lineHeight: 1.4 }}>
+          Paste your profile link from usasportstatistics.net (or a similar site). It'll show up under Team Rankings.
+        </div>
       </Card>
 
       <Card style={{ marginTop: 12 }}>
@@ -2105,6 +2156,7 @@ export default function KeeperStat() {
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} />,
     interview: <Interview go={go} />,
+    rankings: <Rankings go={go} activeKeeper={activeKeeper} />,
     settings: (
       <Settings
         go={go}
