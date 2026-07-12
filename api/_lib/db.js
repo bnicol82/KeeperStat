@@ -34,6 +34,7 @@ export function keeperToJson(row) {
     level: row.level,
     photoUrl: row.photo_url,
     rankingsUrl: row.rankings_url,
+    isPublic: row.is_public,
     focusArea: row.focus_area_title ? { title: row.focus_area_title, note: row.focus_area_note } : null,
     nextGoal: row.next_goal,
     showGMIS: row.show_gmis,

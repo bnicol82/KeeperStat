@@ -3,6 +3,7 @@ import { api, setUnauthorizedHandler } from "./api.js";
 import { authClient, getAuthToken, setCachedAuthToken } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
 /* ============================================================
@@ -50,13 +51,6 @@ const coachQuestions = [
   "What's the one habit you wish every young keeper built early?",
 ];
 
-const LEVELS = {
-  youth: { label: "Youth (U8–U14)", short: "Youth", baseline: 0.65 },
-  highschool: { label: "High School", short: "High School", baseline: 0.72 },
-  adult: { label: "Adult / Club", short: "Adult", baseline: 0.76 },
-  semipro: { label: "Semi-Pro", short: "Semi-Pro", baseline: 0.80 },
-};
-
 const MORE_ITEMS = [
   { key: "report", label: "Match Report", icon: "📋", desc: "Full breakdown of your last match" },
   { key: "training", label: "Training Plan", icon: "🏋️", desc: "Drills picked for your focus area" },
@@ -64,6 +58,7 @@ const MORE_ITEMS = [
   { key: "parent", label: "Parent View", icon: "⭐", desc: "A simple performance summary" },
   { key: "interview", label: "Interview & Feedback", icon: "🎙️", desc: "Reflection questions after matches" },
   { key: "rankings", label: "Team Rankings", icon: "🏆", desc: "Your profile on the rankings site" },
+  { key: "keeperRankings", label: "KeeperStat Rankings", icon: "🥇", desc: "See how public profiles rank" },
   { key: "settings", label: "Settings", icon: "⚙️", desc: "Level of play, scoring & notifications" },
 ];
 
@@ -76,7 +71,7 @@ const TABS = [
 ];
 
 const activeTabFor = (screen) => {
-  if (["report", "training", "development", "parent", "interview", "rankings", "settings"].includes(screen)) return "more";
+  if (["report", "training", "development", "parent", "interview", "rankings", "keeperRankings", "settings"].includes(screen)) return "more";
   if (screen === "dashboard") return "dashboard";
   return screen; // tracker, stats, progress
 };
@@ -233,26 +228,9 @@ const Ring = ({ value, size = 120, stroke = 10, color = C.green, label, sub }) =
 const scoreWord = (s) => (s >= 85 ? "ELITE" : s >= 70 ? "STRONG" : s >= 55 ? "GOOD" : s >= 40 ? "DEVELOPING" : "TOUGH DAY");
 
 // ---------- scoring engine ----------
-// Goals Prevented: how many goals the keeper saved relative to what a
-// baseline keeper at this level of play would be expected to concede,
-// given the same shot volume. This is the core of the GK Impact Score —
-// unlike raw save %, it isn't warped by a light or heavy shot count, and
-// it rewards workload rather than punishing a keeper for facing more shots.
-const goalsPrevented = (shotsFaced, goalsAgainst, baseline) => {
-  if (shotsFaced <= 0) return 0;
-  const expectedGoalsAgainst = shotsFaced * (1 - baseline);
-  return expectedGoalsAgainst - goalsAgainst;
-};
-
-// Converts Goals Prevented into the 0–100 GK Impact Score shown throughout
-// the app: 50 is "performed exactly at the level-of-play baseline."
-const impactScoreFromStats = (shotsFaced, saves, goalsAgainst, baseline) => {
-  const gp = goalsPrevented(shotsFaced, goalsAgainst, baseline);
-  let s = 50 + gp * 10;
-  if (goalsAgainst === 0 && shotsFaced > 0) s += 5; // clean sheet bonus
-  s += Math.min(shotsFaced * 0.5, 6); // small reward for workload/volume
-  return Math.round(Math.min(99, Math.max(5, s)));
-};
+// LEVELS, goalsPrevented, and impactScoreFromStats now live in
+// shared/scoring.js so the backend rankings endpoint computes the exact
+// same score as the frontend.
 
 // GDE — Goalkeeper Defensive Efficiency: saves / shots faced (0–1)
 const gde = (saves, shotsFaced) => (shotsFaced > 0 ? saves / shotsFaced : 0);
@@ -1459,6 +1437,69 @@ const Rankings = ({ go, activeKeeper }) => {
   );
 };
 
+// ---------- 12. KeeperStat Rankings (in-app public leaderboard) ----------
+const RankingRow = ({ rank, entry, isYou }) => (
+  <Card style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", marginBottom: 8, border: isYou ? `1.5px solid ${C.orange}88` : undefined }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+      <div style={{ width: 28, textAlign: "center", fontFamily: fontCond, fontSize: 17, fontWeight: 800, color: rank <= 3 ? C.gold : C.grayDark, flexShrink: 0 }}>
+        {rank}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: C.white, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {entry.displayName}{isYou && <span style={{ color: C.orange }}> · You</span>}
+        </div>
+        <div style={{ fontSize: 11.5, color: C.grayDark, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {entry.team} · {LEVELS[entry.level]?.short || entry.level}
+        </div>
+      </div>
+    </div>
+    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 10 }}>
+      <div style={{ fontFamily: fontCond, fontSize: 22, fontWeight: 800, color: entry.avgScore >= 70 ? C.green : entry.avgScore >= 55 ? C.gold : C.red }}>{entry.avgScore}</div>
+      <div style={{ fontSize: 10.5, color: C.grayDark }}>{entry.matchesPlayed} matches</div>
+    </div>
+  </Card>
+);
+
+const KeeperStatRankings = ({ go, mode, rankings, rankingsLoading, activeKeeper }) => {
+  if (mode === "demo") {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <Header title="KeeperStat Rankings" left="‹" onLeft={() => go("dashboard")} />
+        <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
+          <EmptyState
+            icon="🥇"
+            title="Sign in to see rankings"
+            sub="KeeperStat Rankings compares public keeper profiles across every signed-in account. Log in or create an account to view it."
+            cta="Log In"
+            onCta={() => go("login")}
+          />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Header title="KeeperStat Rankings" left="‹" onLeft={() => go("dashboard")} />
+      <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
+        <Card style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12.5, color: C.grayDark, lineHeight: 1.5 }}>
+            Ranked by season avg. GK Impact Score, minimum 3 tracked matches. Make your own profile public from Settings to join the board.
+          </div>
+        </Card>
+        {rankingsLoading ? (
+          <div style={{ textAlign: "center", color: C.gray, padding: "30px 0" }}>Loading…</div>
+        ) : rankings.length === 0 ? (
+          <EmptyState icon="🥇" title="No public rankings yet" sub="Once keepers make their profile public in Settings and log at least 3 matches, they'll show up here." />
+        ) : (
+          rankings.map((entry, i) => (
+            <RankingRow key={entry.id} rank={i + 1} entry={entry} isYou={entry.id === activeKeeper?.id} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------- keeper avatar (photo, falling back to initial letter) ----------
 const Avatar = ({ keeper, style }) =>
   keeper.photoUrl ? (
@@ -1790,6 +1831,17 @@ const Settings = ({
       </Card>
 
       <Card style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 4 }}>PRIVACY</div>
+        <div className="settings-row" style={{ borderTop: "none" }}>
+          <div>
+            <div className="settings-row-label">Show on KeeperStat Rankings</div>
+            <div className="settings-row-desc">Public profiles appear on the in-app leaderboard as first name + last initial and team (no photo). Off by default.</div>
+          </div>
+          <Toggle on={!!activeKeeper.isPublic} onChange={(v) => updateActiveKeeper({ isPublic: v })} />
+        </div>
+      </Card>
+
+      <Card style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 4 }}>NOTIFICATIONS</div>
         <div className="settings-row" style={{ borderTop: "none" }}>
           <div>
@@ -1854,6 +1906,8 @@ export default function KeeperStat() {
   const [matchesByKeeper, setMatchesByKeeper] = useState({});
   const [fixturesByKeeper, setFixturesByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
+  const [rankings, setRankings] = useState([]);
+  const [rankingsLoading, setRankingsLoading] = useState(false);
 
   // Resume an existing real session on reload, so logging in sticks. This is
   // a plain localStorage read — no network round trip, so nothing here can
@@ -2123,10 +2177,19 @@ export default function KeeperStat() {
     );
   }
 
+  const loadRankings = () => {
+    setRankingsLoading(true);
+    api.listRankings()
+      .then(setRankings)
+      .catch((err) => { console.error("Failed to load rankings", err); setRankings([]); })
+      .finally(() => setRankingsLoading(false));
+  };
+
   const go = (s, matchId) => {
     setScreen(s);
     setMoreOpen(false);
     if (s === "report") setSelectedMatchId(matchId || (matches.length ? matches[matches.length - 1].n : null));
+    if (s === "keeperRankings" && mode === "auth") loadRankings();
   };
 
   const handleNav = (key) => {
@@ -2157,6 +2220,7 @@ export default function KeeperStat() {
     training: <Training go={go} />,
     interview: <Interview go={go} />,
     rankings: <Rankings go={go} activeKeeper={activeKeeper} />,
+    keeperRankings: <KeeperStatRankings go={go} mode={mode} rankings={rankings} rankingsLoading={rankingsLoading} activeKeeper={activeKeeper} />,
     settings: (
       <Settings
         go={go}
