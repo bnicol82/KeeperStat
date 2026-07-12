@@ -1044,6 +1044,17 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <SmallActionButton icon="⭐" label="Big Save" count={match.bigSaves} color={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
         </div>
 
+        <Card style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>MATCH NOTES</div>
+          <textarea
+            value={match.notes}
+            onChange={(e) => onNotesChange(e.target.value)}
+            placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+            className="input-well"
+            style={{ width: "100%", minHeight: 60, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
+          />
+        </Card>
+
         <button
           onClick={() => dispatch({ type: "undo" })}
           disabled={!match.log.length}
@@ -1916,6 +1927,26 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         {field("Shots Faced", "shotsFaced", "number")}
         {field("Goals Against", "ga", "number")}
         {field("Goals Scored", "goalsScored", "number")}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: C.gray, letterSpacing: 1, margin: "10px 0 8px" }}>ADDITIONAL STATS</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {field("Distribution Completed", "distributionCompleted", "number")}
+        {field("Distribution Attempted", "distributionAttempted", "number")}
+        {field("Claims", "claims", "number")}
+        {field("Punches", "punches", "number")}
+        {field("Penalty Saves", "penaltySaves", "number")}
+        {field("Big Saves", "bigSaves", "number")}
+        {field("Errors", "errors", "number")}
+      </div>
+      <div style={{ marginTop: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Notes</div>
+        <textarea
+          value={form.notes ?? ""}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+          className="input-well"
+          style={{ width: "100%", minHeight: 70, padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
+        />
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
         <button onClick={save} className="btn3d btn3d-orange" style={{ flex: 1, padding: 10, borderRadius: 10, fontFamily: fontCond, fontWeight: 700, fontSize: 13 }}>
