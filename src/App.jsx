@@ -736,7 +736,7 @@ const Login = ({ onAuthenticated, onBack }) => {
         onChange={(e) => onChange(e.target.value)}
         placeholder={opts.placeholder}
         className="input-well"
-        style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: opts.last ? 0 : 12 }}
+        style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: opts.last ? 0 : 12 }}
         onKeyDown={opts.onEnter ? (e) => { if (e.key === "Enter") opts.onEnter(); } : undefined}
       />
     </>
@@ -915,7 +915,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               onChange={(e) => setOpponentInput(e.target.value)}
               placeholder="e.g. River City FC"
               className="input-well"
-              style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: nextFixture ? 6 : 12 }}
+              style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: nextFixture ? 6 : 12 }}
             />
             {nextFixture && (
               <div style={{ fontSize: 11, color: C.orange, fontWeight: 600, marginBottom: 12 }}>
@@ -982,7 +982,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               onChange={(e) => onNotesChange(e.target.value)}
               placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
               className="input-well"
-              style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 14, fontFamily: font, outline: "none", resize: "vertical" }}
+              style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
             />
           </Card>
           <button onClick={onSaveMatch} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
@@ -1838,7 +1838,7 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
         onChange={(e) => setText(e.target.value)}
         placeholder={"Harbor FC, 2026-08-01\nWestfield Rovers, 2026-08-08"}
         className="input-well"
-        style={{ width: "100%", minHeight: 76, padding: "10px 12px", color: C.white, fontSize: 14, fontFamily: font, outline: "none", resize: "vertical", marginBottom: 10 }}
+        style={{ width: "100%", minHeight: 76, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical", marginBottom: 10 }}
       />
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={importText} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}>
@@ -1895,7 +1895,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         value={form[key] ?? ""}
         onChange={(e) => setForm({ ...form, [key]: type === "number" ? Number(e.target.value) : e.target.value })}
         className="input-well"
-        style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 14, fontFamily: font, outline: "none" }}
+        style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
       />
     </div>
   );
@@ -2018,14 +2018,14 @@ const Settings = ({
           value={activeKeeper.name}
           onChange={(e) => updateActiveKeeper({ name: e.target.value })}
           className="input-well"
-          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Team</div>
         <input
           value={activeKeeper.team}
           onChange={(e) => updateActiveKeeper({ team: e.target.value })}
           className="input-well"
-          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 12 }}
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Soccer Rankings Profile</div>
         <input
@@ -2033,7 +2033,7 @@ const Settings = ({
           onChange={(e) => updateActiveKeeper({ rankingsUrl: e.target.value })}
           placeholder="https://usasportstatistics.net/..."
           className="input-well"
-          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 15, fontFamily: font, outline: "none", marginBottom: 6 }}
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 6 }}
         />
         <div style={{ fontSize: 12, color: C.grayDark, lineHeight: 1.4 }}>
           Paste your profile link from usasportstatistics.net (or a similar site). It'll show up under Team Rankings.
@@ -2167,6 +2167,26 @@ export default function KeeperStat() {
   useEffect(() => {
     setUnauthorizedHandler(() => handleLogout());
   });
+
+  // Belt-and-suspenders for the iOS on-screen keyboard: index.html already
+  // shrinks .app-shell to the real visible viewport so the bottom nav ends
+  // up above the keyboard rather than under it, but that resize can lag
+  // slightly behind the keyboard's own animation, during which the browser's
+  // default "scroll focused field into view" can run against the pre-resize
+  // layout and leave the field positioned behind the nav bar. Explicitly
+  // re-scrolling the focused field into view shortly after focus (once the
+  // keyboard/viewport has had time to settle) corrects that.
+  useEffect(() => {
+    const handleFocusIn = (e) => {
+      const el = e.target;
+      if (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA") return;
+      setTimeout(() => {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 300);
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, []);
 
   useEffect(() => {
     if (!mode) return;
@@ -2596,6 +2616,11 @@ export default function KeeperStat() {
         .input-well {
           background: #0a0a0a; border: 1px solid ${C.border}; border-radius: 10px;
           box-shadow: inset 0 3px 8px rgba(0,0,0,.7);
+          /* iOS Safari auto-zooms the page on focus for any input/textarea
+             with a computed font-size under 16px — keep this at or above
+             16px (inline fontSize on each input does too) so focusing a
+             field never triggers that zoom. */
+          font-size: 16px;
         }
 
         /* ---- tab track (interview) ---- */
