@@ -1,5 +1,9 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
 import { requireUser } from "../_lib/auth.js";
+import { validString, validBoolean, badRequest } from "../_lib/validate.js";
+import { LEVELS } from "../../shared/scoring.js";
+
+const LEVEL_KEYS = Object.keys(LEVELS);
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -9,6 +13,33 @@ export default async function handler(req, res) {
 
   if (req.method === "PATCH") {
     const patch = req.body ?? {};
+    const errors = [];
+    if (patch.name !== undefined && !validString(patch.name, { required: true, maxLength: 200 })) errors.push("name must be a non-empty string (max 200 chars)");
+    if (patch.team !== undefined && !validString(patch.team, { required: true, maxLength: 200 })) errors.push("team must be a non-empty string (max 200 chars)");
+    if (patch.level !== undefined && !LEVEL_KEYS.includes(patch.level)) errors.push(`level must be one of: ${LEVEL_KEYS.join(", ")}`);
+    if (patch.photoUrl !== undefined && patch.photoUrl !== null && !validString(patch.photoUrl, { maxLength: 2000 })) errors.push("photoUrl must be a string");
+    if (patch.rankingsUrl !== undefined && patch.rankingsUrl !== null && !validString(patch.rankingsUrl, { maxLength: 2000 })) errors.push("rankingsUrl must be a string");
+    if (patch.isPublic !== undefined && !validBoolean(patch.isPublic)) errors.push("isPublic must be a boolean");
+    if (patch.nextGoal !== undefined && patch.nextGoal !== null && !validString(patch.nextGoal, { maxLength: 500 })) errors.push("nextGoal must be a string");
+    if (patch.focusArea !== undefined && patch.focusArea !== null) {
+      if (typeof patch.focusArea !== "object" || Array.isArray(patch.focusArea)) {
+        errors.push("focusArea must be an object with a title");
+      } else {
+        if (!validString(patch.focusArea.title, { required: true, maxLength: 200 })) errors.push("focusArea.title is required (string, max 200 chars)");
+        if (patch.focusArea.note !== undefined && patch.focusArea.note !== null && !validString(patch.focusArea.note, { maxLength: 1000 })) errors.push("focusArea.note must be a string");
+      }
+    }
+    if (patch.showGMIS !== undefined && !validBoolean(patch.showGMIS)) errors.push("showGMIS must be a boolean");
+    if (patch.notifPrefs !== undefined && patch.notifPrefs !== null) {
+      if (typeof patch.notifPrefs !== "object" || Array.isArray(patch.notifPrefs)) {
+        errors.push("notifPrefs must be an object");
+      } else {
+        if (patch.notifPrefs.matchReminders !== undefined && !validBoolean(patch.notifPrefs.matchReminders)) errors.push("notifPrefs.matchReminders must be a boolean");
+        if (patch.notifPrefs.weeklySummary !== undefined && !validBoolean(patch.notifPrefs.weeklySummary)) errors.push("notifPrefs.weeklySummary must be a boolean");
+      }
+    }
+    if (errors.length) return badRequest(res, errors.join("; "));
+
     const [existing] = await sql`SELECT * FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
     if (!existing) {
       res.status(404).json({ error: "Keeper not found" });

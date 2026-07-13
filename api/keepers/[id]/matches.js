@@ -1,5 +1,6 @@
 import { sql, withCors, matchToJson, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
+import { validString, validStatCount, badRequest } from "../../_lib/validate.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -21,6 +22,25 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     const m = req.body ?? {};
+    const errors = [];
+    if (m.opp !== undefined && !validString(m.opp, { maxLength: 200 })) errors.push("opp must be a string (max 200 chars)");
+    if (!validString(m.res, { required: true, maxLength: 20 })) errors.push("res is required (string, max 20 chars)");
+    if (!validStatCount(m.saves)) errors.push("saves must be a non-negative integer (max 500)");
+    if (!validStatCount(m.shotsFaced)) errors.push("shotsFaced must be a non-negative integer (max 500)");
+    if (!validStatCount(m.ga)) errors.push("ga must be a non-negative integer (max 500)");
+    if (!validStatCount(m.goalsScored)) errors.push("goalsScored must be a non-negative integer (max 500)");
+    if (!validStatCount(m.teamShotsOnGoal)) errors.push("teamShotsOnGoal must be a non-negative integer (max 500) or omitted");
+    if (m.minutesPlayed !== undefined && m.minutesPlayed !== null && !validStatCount(m.minutesPlayed, { max: 200 })) errors.push("minutesPlayed must be a non-negative integer (max 200) or omitted");
+    if (!validStatCount(m.distributionCompleted)) errors.push("distributionCompleted must be a non-negative integer (max 500)");
+    if (!validStatCount(m.distributionAttempted)) errors.push("distributionAttempted must be a non-negative integer (max 500)");
+    if (!validStatCount(m.claims)) errors.push("claims must be a non-negative integer (max 500)");
+    if (!validStatCount(m.punches)) errors.push("punches must be a non-negative integer (max 500)");
+    if (!validStatCount(m.penaltySaves)) errors.push("penaltySaves must be a non-negative integer (max 500)");
+    if (!validStatCount(m.bigSaves)) errors.push("bigSaves must be a non-negative integer (max 500)");
+    if (!validStatCount(m.errors)) errors.push("errors must be a non-negative integer (max 500)");
+    if (m.notes !== undefined && m.notes !== null && !validString(m.notes, { maxLength: 5000 })) errors.push("notes must be a string (max 5000 chars)");
+    if (errors.length) return badRequest(res, errors.join("; "));
+
     const [{ next_n }] = await sql`
       SELECT COALESCE(MAX(match_number), 0) + 1 AS next_n FROM matches WHERE keeper_id = ${id}
     `;

@@ -1,5 +1,8 @@
 import { sql, withCors, interviewResponseToJson, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
+import { validString, validInt, badRequest } from "../../_lib/validate.js";
+
+const VALID_TABS = ["Coach", "Parent", "Keeper"];
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -19,10 +22,12 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     const { tab, questionIndex, answer } = req.body ?? {};
-    if (!tab || questionIndex === undefined || questionIndex === null) {
-      res.status(400).json({ error: "tab and questionIndex are required" });
-      return;
-    }
+    const errors = [];
+    if (!VALID_TABS.includes(tab)) errors.push(`tab must be one of: ${VALID_TABS.join(", ")}`);
+    if (!validInt(questionIndex, { required: true, min: 0, max: 100 })) errors.push("questionIndex is required (non-negative integer, max 100)");
+    if (answer !== undefined && answer !== null && !validString(answer, { maxLength: 5000 })) errors.push("answer must be a string (max 5000 chars)");
+    if (errors.length) return badRequest(res, errors.join("; "));
+
     const [row] = await sql`
       INSERT INTO interview_responses (keeper_id, tab, question_index, answer)
       VALUES (${id}, ${tab}, ${questionIndex}, ${answer ?? ""})

@@ -1,5 +1,9 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
 import { requireUser } from "../_lib/auth.js";
+import { validString, badRequest } from "../_lib/validate.js";
+import { LEVELS } from "../../shared/scoring.js";
+
+const LEVEL_KEYS = Object.keys(LEVELS);
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -14,10 +18,12 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     const { name, team, level } = req.body ?? {};
-    if (!name || !team) {
-      res.status(400).json({ error: "name and team are required" });
-      return;
-    }
+    const errors = [];
+    if (!validString(name, { required: true, maxLength: 200 })) errors.push("name is required (string, max 200 chars)");
+    if (!validString(team, { required: true, maxLength: 200 })) errors.push("team is required (string, max 200 chars)");
+    if (level !== undefined && !LEVEL_KEYS.includes(level)) errors.push(`level must be one of: ${LEVEL_KEYS.join(", ")}`);
+    if (errors.length) return badRequest(res, errors.join("; "));
+
     const [row] = await sql`
       INSERT INTO keepers (name, team, level, user_id)
       VALUES (${name}, ${team}, ${level ?? "youth"}, ${userId})
