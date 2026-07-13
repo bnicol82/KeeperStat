@@ -1396,7 +1396,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const idx = Math.max(0, matches.findIndex((x) => x.n === matchId));
   const m = matches[idx] ?? matches[matches.length - 1];
   const realIdx = matches.findIndex((x) => x.n === m.n);
-  const savePct = Math.round((m.saves / m.shotsFaced) * 100);
+  const savePct = m.shotsFaced ? Math.round((m.saves / m.shotsFaced) * 100) : 0;
   const score = impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline);
   const win = m.res.startsWith("W"), loss = m.res.startsWith("L");
   const badgeClass = win ? "win-badge" : loss ? "loss-badge" : "draw-badge";
