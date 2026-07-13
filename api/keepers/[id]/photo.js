@@ -1,6 +1,7 @@
 import { handleUpload } from "@vercel/blob/client";
 import { withCors, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
+import { enforceRateLimit, RATE_LIMITS } from "../../_lib/rateLimit.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -11,6 +12,7 @@ export default async function handler(req, res) {
     res.status(404).json({ error: "Keeper not found" });
     return;
   }
+  if (!(await enforceRateLimit(res, `photo:${userId}`, RATE_LIMITS.photoUpload))) return;
 
   try {
     const jsonResponse = await handleUpload({

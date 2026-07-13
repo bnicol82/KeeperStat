@@ -1,6 +1,7 @@
 import { sql, withCors, matchToJson, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
 import { validString, validStatCount, badRequest } from "../../_lib/validate.js";
+import { enforceRateLimit, RATE_LIMITS } from "../../_lib/rateLimit.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -21,6 +22,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     const m = req.body ?? {};
     const errors = [];
     if (m.opp !== undefined && !validString(m.opp, { maxLength: 200 })) errors.push("opp must be a string (max 200 chars)");
