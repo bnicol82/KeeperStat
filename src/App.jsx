@@ -37,19 +37,62 @@ const C = {
 const font = "'Barlow', -apple-system, 'Segoe UI', Roboto, sans-serif";
 const fontCond = "'Barlow Condensed', 'Arial Narrow', sans-serif";
 
+// Each drill is tagged with the season stat it's meant to improve, so
+// Training Recommendations can rank/focus on whichever category the
+// keeper's own numbers say needs the most work, instead of a fixed order.
 const drills = [
-  { title: "Low Dive Reaction Drill", mins: 8, emoji: "🧤", desc: "Rapid-fire low balls to alternate sides. Focus on collapse technique and quick recovery to set position." },
-  { title: "Close Range Saves", mins: 10, emoji: "⚡", desc: "Reaction saves from 6–8 yards. Trains hand speed and blocking shape under pressure." },
-  { title: "Angle & Positioning", mins: 12, emoji: "📐", desc: "Cone-guided arc work. Learn to narrow shooting angles as the ball travels across the box." },
-  { title: "Distribution Under Pressure", mins: 10, emoji: "🎯", desc: "Throw and pass to moving targets with a defender closing down. Builds the next goal: 80% distribution accuracy." },
+  { title: "Low Dive Reaction Drill", mins: 8, emoji: "🧤", category: "shotStopping", focusLabel: "Low Diving Saves", desc: "Rapid-fire low balls to alternate sides. Focus on collapse technique and quick recovery to set position." },
+  { title: "Reaction Ball Saves", mins: 8, emoji: "🎾", category: "shotStopping", focusLabel: "Shot Stopping", desc: "Irregular-bounce reaction ball dropped from close range. Sharpens first-movement speed on shots you don't see cleanly." },
+  { title: "Close Range Saves", mins: 10, emoji: "⚡", category: "composure", focusLabel: "Composure Under Pressure", desc: "Reaction saves from 6–8 yards. Trains hand speed and blocking shape under pressure." },
+  { title: "1v1 Composure Reps", mins: 10, emoji: "🧠", category: "composure", focusLabel: "Composure Under Pressure", desc: "Breakaway reps against an advancing attacker. Builds patience and shot-blocking decisions instead of early commitment." },
+  { title: "Angle & Positioning", mins: 12, emoji: "📐", category: "positioning", focusLabel: "Angle & Positioning", desc: "Cone-guided arc work. Learn to narrow shooting angles as the ball travels across the box." },
+  { title: "Back-Post Cover Runs", mins: 10, emoji: "🏃", category: "positioning", focusLabel: "Angle & Positioning", desc: "Recovery runs to cover the far post on switched play. Trains reading the game to prevent easy tap-ins." },
+  { title: "Distribution Under Pressure", mins: 10, emoji: "🎯", category: "distribution", focusLabel: "Distribution Accuracy", desc: "Throw and pass to moving targets with a defender closing down. Builds the next goal: 80% distribution accuracy." },
+  { title: "Long Ball Accuracy", mins: 10, emoji: "🥾", category: "distribution", focusLabel: "Distribution Accuracy", desc: "Goal kicks and punts to a target zone. Builds range and consistency on longer distribution." },
 ];
 
-const coachQuestions = [
-  "What statistics influence your coaching decisions the most?",
-  "How do you decide when a keeper is ready to move up a level?",
-  "What does a keeper's body language tell you during a match?",
-  "What's the one habit you wish every young keeper built early?",
-];
+// Weighs season-wide numbers against a reasonable target for each category
+// and returns whichever one is furthest behind — that becomes the focus area.
+const trainingFocusCategory = (matches) => {
+  if (!matches.length) return null;
+  const totalShots = matches.reduce((a, m) => a + m.shotsFaced, 0);
+  const totalSaves = matches.reduce((a, m) => a + m.saves, 0);
+  const savePct = totalShots ? (totalSaves / totalShots) * 100 : 0;
+  const csRate = matches.filter((m) => m.ga === 0).length / matches.length;
+  const errorsPerMatch = matches.reduce((a, m) => a + m.errors, 0) / matches.length;
+  const totalDistAtt = matches.reduce((a, m) => a + m.distributionAttempted, 0);
+  const totalDistComp = matches.reduce((a, m) => a + m.distributionCompleted, 0);
+  const distPct = totalDistAtt ? (totalDistComp / totalDistAtt) * 100 : 0;
+
+  const gaps = {
+    shotStopping: Math.max(0, (68 - savePct) / 68),
+    composure: Math.min(1, errorsPerMatch / 2),
+    positioning: Math.max(0, (0.25 - csRate) / 0.25),
+    distribution: Math.max(0, (75 - distPct) / 75),
+  };
+  return Object.entries(gaps).sort((a, b) => b[1] - a[1])[0][0];
+};
+
+const INTERVIEW_QUESTIONS = {
+  Coach: [
+    "What statistics influence your coaching decisions the most?",
+    "How do you decide when a keeper is ready to move up a level?",
+    "What does a keeper's body language tell you during a match?",
+    "What's the one habit you wish every young keeper built early?",
+  ],
+  Parent: [
+    "What did you notice about their effort or attitude today, regardless of the score?",
+    "Was there a moment today you think they'll want to talk about on the ride home?",
+    "How do they usually react to a tough goal against — what helps them reset?",
+    "What's one thing you want to make sure they hear from you after this match?",
+  ],
+  Keeper: [
+    "What's one save or moment from this match you're proud of?",
+    "Was there a goal or chance you'd like to have back? What would you do differently?",
+    "How did you feel with your teammates in front of you today — loud, quiet, in sync?",
+    "What's one thing you want to work on before the next match?",
+  ],
+};
 
 const MORE_ITEMS = [
   { key: "report", label: "Match Report", icon: "📋", desc: "Full breakdown of your last match" },
@@ -1355,7 +1398,7 @@ const Development = ({ go, baseline, matches, activeKeeper }) => {
           ))}
         </Card>
         <Card style={{ marginTop: 12, background: "linear-gradient(180deg, #362707, #201703)", border: `1px solid ${C.gold}44` }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.gold, letterSpacing: 1, marginBottom: 8 }}>FOCUS AREA · SET BY COACH</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.gold, letterSpacing: 1, marginBottom: 8 }}>FOCUS AREA</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 16, fontWeight: 700, color: C.gold }}>
             <span className="badge-bang">!</span>
             {focusArea.title}
@@ -1574,19 +1617,27 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
 };
 
 // ---------- 9. Training Recommendations ----------
-const Training = ({ go }) => {
+const Training = ({ go, matches }) => {
   const [open, setOpen] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const focusCategory = trainingFocusCategory(matches);
+  const ranked = focusCategory
+    ? [...drills].sort((a, b) => (a.category === focusCategory) === (b.category === focusCategory) ? 0 : a.category === focusCategory ? -1 : 1)
+    : drills;
+  const visible = showAll ? ranked : ranked.slice(0, 3);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Training Recommendations" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
         <Card>
-          <div style={{ fontSize: 13.5, color: C.gray, fontWeight: 600 }}>Based on your performance</div>
-          <div style={{ fontSize: 16.5, fontWeight: 700, color: C.gold, marginTop: 4 }}>Focus: Low Diving Saves</div>
+          <div style={{ fontSize: 13.5, color: C.gray, fontWeight: 600 }}>{focusCategory ? "Based on your performance" : "Get started"}</div>
+          <div style={{ fontSize: 16.5, fontWeight: 700, color: C.gold, marginTop: 4 }}>
+            {focusCategory ? `Focus: ${ranked[0].focusLabel}` : "Track a match to unlock a personalized focus area"}
+          </div>
         </Card>
-        {drills.map((d, i) => (
+        {visible.map((d) => (
           <Card key={d.title} style={{ marginTop: 10, padding: 0, overflow: "hidden" }}>
-            <button onClick={() => setOpen(open === i ? null : i)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 12, background: "none", border: "none", cursor: "pointer" }}>
+            <button onClick={() => setOpen(open === d.title ? null : d.title)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 12, background: "none", border: "none", cursor: "pointer" }}>
               <div className="drill-thumb">{d.emoji}</div>
               <div style={{ flex: 1, textAlign: "left" }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: C.white }}>{d.title}</div>
@@ -1594,12 +1645,14 @@ const Training = ({ go }) => {
               </div>
               <div className="play-chip">▶</div>
             </button>
-            {open === i && <div style={{ padding: "0 14px 14px", fontSize: 13.5, lineHeight: 1.5, color: "#C9C9C9" }}>{d.desc}</div>}
+            {open === d.title && <div style={{ padding: "0 14px 14px", fontSize: 13.5, lineHeight: 1.5, color: "#C9C9C9" }}>{d.desc}</div>}
           </Card>
         ))}
-        <button className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 26, fontFamily: fontCond, fontWeight: 700, fontSize: 17, letterSpacing: 1.5 }}>
-          VIEW ALL DRILLS
-        </button>
+        {!showAll && (
+          <button onClick={() => setShowAll(true)} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 26, fontFamily: fontCond, fontWeight: 700, fontSize: 17, letterSpacing: 1.5 }}>
+            VIEW ALL DRILLS
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1612,6 +1665,7 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
   const [draft, setDraft] = useState("");
   const [done, setDone] = useState(false);
   const key = `${tab}-${q}`;
+  const questions = INTERVIEW_QUESTIONS[tab];
 
   // The persisted value is the source of truth; `draft` just tracks in-progress
   // edits to the current question so typing doesn't fire a save on every keystroke.
@@ -1622,7 +1676,7 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
   };
   const next = () => {
     commit();
-    if (q < coachQuestions.length - 1) setQ(q + 1); else setDone(true);
+    if (q < questions.length - 1) setQ(q + 1); else setDone(true);
   };
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -1639,9 +1693,9 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
           <Card style={{ marginTop: 14, flex: 1, display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: C.gold }}>{tab} Questions</span>
-              <span style={{ fontSize: 13, color: C.gray, fontWeight: 600 }}>{q + 1} / {coachQuestions.length}</span>
+              <span style={{ fontSize: 13, color: C.gray, fontWeight: 600 }}>{q + 1} / {questions.length}</span>
             </div>
-            <div style={{ fontSize: 16.5, fontWeight: 600, color: C.white, lineHeight: 1.45, margin: "12px 0" }}>{coachQuestions[q]}</div>
+            <div style={{ fontSize: 16.5, fontWeight: 600, color: C.white, lineHeight: 1.45, margin: "12px 0" }}>{questions[q]}</div>
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -1655,7 +1709,7 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
               <button onClick={next} style={{ background: "none", border: "none", color: C.gray, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>SKIP</button>
             </div>
             <div style={{ display: "flex", justifyContent: "center", gap: 7, marginTop: 14 }}>
-              {coachQuestions.map((_, i) => (
+              {questions.map((_, i) => (
                 <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: i === q ? C.orange : "#3A3A3A", boxShadow: i === q ? `0 0 8px ${C.orange}88` : "none" }} />
               ))}
             </div>
@@ -2093,6 +2147,44 @@ const Settings = ({
         <div style={{ fontSize: 12, color: C.grayDark, lineHeight: 1.4 }}>
           Paste your profile link from usasportstatistics.net (or a similar site). It'll show up under Team Rankings.
         </div>
+      </Card>
+
+      <Card style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 4 }}>DEVELOPMENT</div>
+        <div style={{ fontSize: 12.5, color: C.grayDark, lineHeight: 1.5, marginBottom: 12 }}>
+          Shown on the Keeper Development screen. Set this yourself, together with a coach, or leave it blank.
+        </div>
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Focus Area Title</div>
+        <input
+          value={activeKeeper.focusArea?.title || ""}
+          onChange={(e) => {
+            const title = e.target.value;
+            // The backend requires a title whenever focusArea is non-null, so
+            // clearing the title entirely clears the whole focus area instead
+            // of sending an invalid half-empty object.
+            updateActiveKeeper({ focusArea: title.trim() ? { title, note: activeKeeper.focusArea?.note || "" } : null });
+          }}
+          placeholder="e.g. Low Diving Saves"
+          className="input-well"
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
+        />
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Focus Area Note</div>
+        <input
+          value={activeKeeper.focusArea?.note || ""}
+          onChange={(e) => updateActiveKeeper({ focusArea: { title: activeKeeper.focusArea.title, note: e.target.value } })}
+          disabled={!activeKeeper.focusArea?.title}
+          placeholder={activeKeeper.focusArea?.title ? "e.g. Work on technique and explosiveness" : "Add a title first"}
+          className="input-well"
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12, opacity: activeKeeper.focusArea?.title ? 1 : 0.5 }}
+        />
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Next Goal</div>
+        <input
+          value={activeKeeper.nextGoal || ""}
+          onChange={(e) => updateActiveKeeper({ nextGoal: e.target.value })}
+          placeholder="e.g. Increase distribution accuracy above 80%"
+          className="input-well"
+          style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
+        />
       </Card>
 
       <Card style={{ marginTop: 12 }}>
@@ -2555,7 +2647,7 @@ export default function KeeperStat() {
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
-    training: <Training go={go} />,
+    training: <Training go={go} matches={matches} />,
     interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,
     rankings: <Rankings go={go} activeKeeper={activeKeeper} />,
     keeperRankings: <KeeperStatRankings go={go} mode={mode} rankings={rankings} rankingsLoading={rankingsLoading} activeKeeper={activeKeeper} />,
