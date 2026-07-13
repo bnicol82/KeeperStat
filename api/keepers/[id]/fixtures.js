@@ -1,5 +1,6 @@
 import { sql, withCors, fixtureToJson, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
+import { validString, validDateString } from "../../_lib/validate.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -22,9 +23,14 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     const items = Array.isArray(req.body) ? req.body : [];
-    const toInsert = items.filter((item) => item?.opponent);
+    // Bulk import (pasted rows / CSV) tolerates imperfect input — rows with
+    // no opponent, an oversized opponent name, or a malformed date are
+    // quietly skipped rather than failing the whole batch.
+    const toInsert = items.filter(
+      (item) => validString(item?.opponent, { required: true, maxLength: 200 }) && validDateString(item?.date)
+    );
     if (!toInsert.length) {
-      res.status(400).json({ error: "Expected a non-empty array of { opponent, date }" });
+      res.status(400).json({ error: "Expected a non-empty array of { opponent, date } with valid values" });
       return;
     }
     const inserted = [];

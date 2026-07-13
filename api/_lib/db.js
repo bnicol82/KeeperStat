@@ -80,3 +80,11 @@ export function fixtureToJson(row) {
     date: row.match_date ? row.match_date.toISOString().slice(0, 10) : null,
   };
 }
+
+export function interviewResponseToJson(row) {
+  return {
+    tab: row.tab,
+    questionIndex: row.question_index,
+    answer: row.answer,
+  };
+}

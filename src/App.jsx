@@ -1606,20 +1606,31 @@ const Training = ({ go }) => {
 };
 
 // ---------- 10. Interview & Feedback ----------
-const Interview = ({ go }) => {
+const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
   const [tab, setTab] = useState("Coach");
   const [q, setQ] = useState(0);
-  const [answers, setAnswers] = useState({});
+  const [draft, setDraft] = useState("");
   const [done, setDone] = useState(false);
   const key = `${tab}-${q}`;
-  const next = () => (q < coachQuestions.length - 1 ? setQ(q + 1) : setDone(true));
+
+  // The persisted value is the source of truth; `draft` just tracks in-progress
+  // edits to the current question so typing doesn't fire a save on every keystroke.
+  useEffect(() => { setDraft(answers[key] || ""); }, [key, answers[key]]);
+
+  const commit = () => {
+    if (draft !== (answers[key] || "")) onSaveAnswer(tab, q, draft);
+  };
+  const next = () => {
+    commit();
+    if (q < coachQuestions.length - 1) setQ(q + 1); else setDone(true);
+  };
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Interview & Feedback" left="‹" onLeft={() => go("dashboard")} />
       <div style={{ padding: "0 16px 16px", flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
         <div className="tab-track">
           {["Coach", "Parent", "Keeper"].map((t) => (
-            <button key={t} onClick={() => { setTab(t); setQ(0); setDone(false); }} className={`tab-pill ${tab === t ? "tab-pill-active" : ""}`}>
+            <button key={t} onClick={() => { commit(); setTab(t); setQ(0); setDone(false); }} className={`tab-pill ${tab === t ? "tab-pill-active" : ""}`}>
               {t}
             </button>
           ))}
@@ -1632,8 +1643,9 @@ const Interview = ({ go }) => {
             </div>
             <div style={{ fontSize: 16.5, fontWeight: 600, color: C.white, lineHeight: 1.45, margin: "12px 0" }}>{coachQuestions[q]}</div>
             <textarea
-              value={answers[key] || ""}
-              onChange={(e) => setAnswers({ ...answers, [key]: e.target.value })}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
               placeholder="Type your answer..."
               className="input-well"
               style={{ flex: 1, minHeight: 140, resize: "none", padding: 12, color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
@@ -1652,7 +1664,7 @@ const Interview = ({ go }) => {
           <Card style={{ marginTop: 14, textAlign: "center", padding: "34px 20px" }}>
             <div style={{ fontSize: 40 }}>✅</div>
             <div style={{ fontFamily: fontCond, fontSize: 22, fontWeight: 800, color: C.white, marginTop: 8 }}>FEEDBACK SUBMITTED</div>
-            <div style={{ fontSize: 14, color: C.gray, marginTop: 6 }}>Answers are saved to this match and shared with the {tab === "Coach" ? "family" : "coach"}.</div>
+            <div style={{ fontSize: 14, color: C.gray, marginTop: 6 }}>Saved to {activeKeeper.name}'s profile — revisit and update these anytime.</div>
             <button onClick={() => { setQ(0); setDone(false); }} className="btn3d btn3d-outline" style={{ marginTop: 18, padding: "12px 26px", borderRadius: 22, color: C.orange, fontWeight: 700, fontSize: 14 }}>Review answers</button>
           </Card>
         )}
@@ -2188,6 +2200,7 @@ export default function KeeperStat() {
   const [activeKeeperId, setActiveKeeperId] = useState(null);
   const [matchesByKeeper, setMatchesByKeeper] = useState({});
   const [fixturesByKeeper, setFixturesByKeeper] = useState({});
+  const [interviewByKeeper, setInterviewByKeeper] = useState({});
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [rankings, setRankings] = useState([]);
   const [rankingsLoading, setRankingsLoading] = useState(false);
@@ -2244,14 +2257,16 @@ export default function KeeperStat() {
         if (ks.length) {
           const firstId = ks[0].id;
           setActiveKeeperId(firstId);
-          const [ms, fx] = await Promise.all([currentApi.listMatches(firstId), currentApi.listFixtures(firstId)]);
+          const [ms, fx, iv] = await Promise.all([currentApi.listMatches(firstId), currentApi.listFixtures(firstId), currentApi.listInterviewResponses(firstId)]);
           if (cancelled) return;
           setMatchesByKeeper({ [firstId]: ms });
           setFixturesByKeeper({ [firstId]: fx });
+          setInterviewByKeeper({ [firstId]: iv });
         } else {
           setActiveKeeperId(null);
           setMatchesByKeeper({});
           setFixturesByKeeper({});
+          setInterviewByKeeper({});
         }
       } catch (err) {
         console.error("Failed to load keepers", err);
@@ -2280,12 +2295,15 @@ export default function KeeperStat() {
     setActiveKeeperId(null);
     setMatchesByKeeper({});
     setFixturesByKeeper({});
+    setInterviewByKeeper({});
     go("welcome");
   };
 
   const activeKeeper = keepers.find((k) => k.id === activeKeeperId) || keepers[0];
   const matches = matchesByKeeper[activeKeeperId] || [];
   const fixtures = fixturesByKeeper[activeKeeperId] || [];
+  const interviewResponses = interviewByKeeper[activeKeeperId] || [];
+  const interviewAnswers = Object.fromEntries(interviewResponses.map((r) => [`${r.tab}-${r.questionIndex}`, r.answer]));
   const baseline = activeKeeper ? LEVELS[activeKeeper.level].baseline : null;
 
   const updateActiveKeeper = (patch) => {
@@ -2302,6 +2320,7 @@ export default function KeeperStat() {
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
         setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
+        setInterviewByKeeper((ib) => ({ ...ib, [keeper.id]: [] }));
         setActiveKeeperId(keeper.id);
         setKeeperSheetOpen(false);
       })
@@ -2320,6 +2339,11 @@ export default function KeeperStat() {
         .then((fx) => setFixturesByKeeper((fb) => ({ ...fb, [id]: fx })))
         .catch((err) => console.error("Failed to load fixtures", err));
     }
+    if (!interviewByKeeper[id]) {
+      dataApi.listInterviewResponses(id)
+        .then((iv) => setInterviewByKeeper((ib) => ({ ...ib, [id]: iv })))
+        .catch((err) => console.error("Failed to load interview responses", err));
+    }
   };
   const deleteKeeper = (id) => {
     dataApi.deleteKeeper(id)
@@ -2331,8 +2355,17 @@ export default function KeeperStat() {
         });
         setMatchesByKeeper((mb) => { const next = { ...mb }; delete next[id]; return next; });
         setFixturesByKeeper((fb) => { const next = { ...fb }; delete next[id]; return next; });
+        setInterviewByKeeper((ib) => { const next = { ...ib }; delete next[id]; return next; });
       })
       .catch((err) => console.error("Failed to delete keeper", err));
+  };
+  const saveInterviewAnswer = (tab, questionIndex, answer) => {
+    const keeperId = activeKeeperId;
+    setInterviewByKeeper((ib) => {
+      const existing = (ib[keeperId] || []).filter((r) => !(r.tab === tab && r.questionIndex === questionIndex));
+      return { ...ib, [keeperId]: [...existing, { tab, questionIndex, answer }] };
+    });
+    dataApi.saveInterviewResponse(keeperId, { tab, questionIndex, answer }).catch((err) => console.error("Failed to save interview answer", err));
   };
 
   const importFixtures = (items) => {
@@ -2523,7 +2556,7 @@ export default function KeeperStat() {
     report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} />,
-    interview: <Interview go={go} />,
+    interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,
     rankings: <Rankings go={go} activeKeeper={activeKeeper} />,
     keeperRankings: <KeeperStatRankings go={go} mode={mode} rankings={rankings} rankingsLoading={rankingsLoading} activeKeeper={activeKeeper} />,
     settings: (

@@ -42,6 +42,7 @@ export function createDemoApi() {
     [keeperId]: SAMPLE_MATCHES.map((m, i) => ({ id: uid(), n: i + 1, ...detailDefaults, ...m })),
   };
   let fixturesByKeeper = { [keeperId]: [] };
+  let interviewByKeeper = { [keeperId]: [] };
 
   return {
     listKeepers: async () => keepers,
@@ -51,6 +52,7 @@ export function createDemoApi() {
       keepers = [...keepers, keeper];
       matchesByKeeper[keeper.id] = [];
       fixturesByKeeper[keeper.id] = [];
+      interviewByKeeper[keeper.id] = [];
       return keeper;
     },
 
@@ -63,6 +65,7 @@ export function createDemoApi() {
       keepers = keepers.filter((k) => k.id !== id);
       delete matchesByKeeper[id];
       delete fixturesByKeeper[id];
+      delete interviewByKeeper[id];
       return null;
     },
 
@@ -107,5 +110,15 @@ export function createDemoApi() {
     // calls this (it gates the Rankings screen on auth mode), but it's
     // kept here so this object's shape still mirrors src/api.js.
     listRankings: async () => [],
+
+    listInterviewResponses: async (keeperId) => interviewByKeeper[keeperId] || [],
+
+    saveInterviewResponse: async (keeperId, { tab, questionIndex, answer }) => {
+      const existing = interviewByKeeper[keeperId] || [];
+      const next = existing.filter((r) => !(r.tab === tab && r.questionIndex === questionIndex));
+      const response = { tab, questionIndex, answer: answer ?? "" };
+      interviewByKeeper[keeperId] = [...next, response];
+      return response;
+    },
   };
 }
