@@ -975,6 +975,11 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               {match.penaltySaves > 0 && `🥇 ${match.penaltySaves} Penalty Save${match.penaltySaves > 1 ? "s" : ""}`}
             </div>
           )}
+          {match.teamShotsOnGoal > 0 && (
+            <div style={{ fontSize: 12.5, color: C.orange, fontWeight: 600, textAlign: "center", marginTop: 6 }}>
+              🎯 {match.teamShotsOnGoal} Team Shot{match.teamShotsOnGoal > 1 ? "s" : ""} on Goal
+            </div>
+          )}
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>POST-MATCH NOTES</div>
             <textarea
@@ -1042,6 +1047,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <SmallActionButton icon="👊" label="Punch" count={match.punches} color={C.blue} onClick={() => dispatch({ type: "punch" })} />
           <SmallActionButton icon="🥇" label="Penalty Save" count={match.penaltySaves} color={C.gold} onClick={() => dispatch({ type: "penaltySave" })} />
           <SmallActionButton icon="⭐" label="Big Save" count={match.bigSaves} color={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
+          <SmallActionButton icon="🎯" label="Team Shot on Goal" count={match.teamShotsOnGoal} color={C.orange} onClick={() => dispatch({ type: "teamShotOnGoal" })} />
         </div>
 
         <Card style={{ marginBottom: 12 }}>
@@ -2153,7 +2159,7 @@ const Settings = ({
 const emptyMatch = (opponent = "") => ({
   opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [],
   distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0,
-  penaltySaves: 0, bigSaves: 0, errors: 0, notes: "",
+  penaltySaves: 0, bigSaves: 0, errors: 0, notes: "", teamShotsOnGoal: 0,
 });
 
 export default function KeeperStat() {
@@ -2389,7 +2395,7 @@ export default function KeeperStat() {
       ga: match.goalsAgainst,
       res: `${match.ourGoals > match.goalsAgainst ? "W" : match.ourGoals < match.goalsAgainst ? "L" : "D"} ${match.ourGoals}-${match.goalsAgainst}`,
       goalsScored: match.ourGoals,
-      teamShotsOnGoal: null, // the live tracker only captures the keeper's own stats today
+      teamShotsOnGoal: match.teamShotsOnGoal,
       minutesPlayed: mm || null,
       distributionCompleted: match.distributionCompleted,
       distributionAttempted: match.distributionAttempted,
@@ -2414,7 +2420,8 @@ export default function KeeperStat() {
     setMatch((m) => {
       if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
       if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
-      if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
+      if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
+      if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
       if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
       if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
       if (a.type === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionMiss", label: "Distribution Missed" }] };
@@ -2437,7 +2444,8 @@ export default function KeeperStat() {
         const log = m.log.slice(0, -1);
         if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
         if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
-        if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, log };
+        if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
+        if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
         if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
         if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
         if (last.t === "claim") return { ...m, claims: m.claims - 1, log };
