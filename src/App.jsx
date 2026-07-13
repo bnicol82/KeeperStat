@@ -1436,6 +1436,12 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             {cellBox("Penalty Saves", m.penaltySaves)}{cellBox("Big Saves", m.bigSaves)}{cellBox("Errors", m.errors)}
           </div>
         </Card>
+        {m.notes && (
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>MATCH NOTES</div>
+            <div style={{ fontSize: 14, lineHeight: 1.55, color: "#DADADA", whiteSpace: "pre-wrap" }}>{m.notes}</div>
+          </Card>
+        )}
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
@@ -2739,10 +2745,26 @@ export default function KeeperStat() {
           border-radius: 22px 22px 0 0;
           box-shadow: 0 -12px 34px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.06);
           transform: translateY(105%);
-          transition: transform .32s cubic-bezier(.32,.72,0,1);
+          /* translateY(105%) is relative to the sheet's OWN height, which only
+             reliably clears the screen if the positioned ancestor is exactly
+             viewport-tall. When it's shorter (e.g. a stale --app-height before
+             a resize settles), a short sheet's "closed" position can still
+             land inside the visible viewport. visibility/pointer-events give
+             a transform-independent guarantee that a closed sheet is neither
+             seen nor clickable regardless of container sizing — the delay on
+             visibility (only applied while closed) lets the slide-out
+             animation finish before it disappears. */
+          visibility: hidden;
+          pointer-events: none;
+          transition: transform .32s cubic-bezier(.32,.72,0,1), visibility 0s linear .32s;
           padding: 10px 14px calc(22px + env(safe-area-inset-bottom)); max-height: 74%; overflow-y: auto;
         }
-        .sheet.open { transform: translateY(0); }
+        .sheet.open {
+          transform: translateY(0);
+          visibility: visible;
+          pointer-events: auto;
+          transition: transform .32s cubic-bezier(.32,.72,0,1), visibility 0s linear 0s;
+        }
         .sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: #3a3a3a; margin: 4px auto 14px; }
         .sheet-header {
           display: flex; justify-content: space-between; align-items: center; padding: 0 4px 12px;
