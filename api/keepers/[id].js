@@ -1,6 +1,7 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
 import { requireUser } from "../_lib/auth.js";
 import { validString, validBoolean, badRequest } from "../_lib/validate.js";
+import { enforceRateLimit, RATE_LIMITS } from "../_lib/rateLimit.js";
 import { LEVELS } from "../../shared/scoring.js";
 
 const LEVEL_KEYS = Object.keys(LEVELS);
@@ -12,6 +13,7 @@ export default async function handler(req, res) {
   const { id } = req.query;
 
   if (req.method === "PATCH") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     const patch = req.body ?? {};
     const errors = [];
     if (patch.name !== undefined && !validString(patch.name, { required: true, maxLength: 200 })) errors.push("name must be a non-empty string (max 200 chars)");
@@ -83,6 +85,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     const [existing] = await sql`SELECT id FROM keepers WHERE id = ${id} AND user_id = ${userId}`;
     if (!existing) {
       res.status(404).json({ error: "Keeper not found" });

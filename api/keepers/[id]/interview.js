@@ -1,6 +1,7 @@
 import { sql, withCors, interviewResponseToJson, ownsKeeper } from "../../_lib/db.js";
 import { requireUser } from "../../_lib/auth.js";
 import { validString, validInt, badRequest } from "../../_lib/validate.js";
+import { enforceRateLimit, RATE_LIMITS } from "../../_lib/rateLimit.js";
 
 const VALID_TABS = ["Coach", "Parent", "Keeper"];
 
@@ -21,6 +22,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     const { tab, questionIndex, answer } = req.body ?? {};
     const errors = [];
     if (!VALID_TABS.includes(tab)) errors.push(`tab must be one of: ${VALID_TABS.join(", ")}`);

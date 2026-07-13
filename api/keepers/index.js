@@ -1,6 +1,7 @@
 import { sql, withCors, keeperToJson } from "../_lib/db.js";
 import { requireUser } from "../_lib/auth.js";
 import { validString, badRequest } from "../_lib/validate.js";
+import { enforceRateLimit, RATE_LIMITS } from "../_lib/rateLimit.js";
 import { LEVELS } from "../../shared/scoring.js";
 
 const LEVEL_KEYS = Object.keys(LEVELS);
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     const { name, team, level } = req.body ?? {};
     const errors = [];
     if (!validString(name, { required: true, maxLength: 200 })) errors.push("name is required (string, max 200 chars)");

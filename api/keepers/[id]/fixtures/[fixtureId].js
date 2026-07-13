@@ -1,5 +1,6 @@
 import { sql, withCors, ownsKeeper } from "../../../_lib/db.js";
 import { requireUser } from "../../../_lib/auth.js";
+import { enforceRateLimit, RATE_LIMITS } from "../../../_lib/rateLimit.js";
 
 export default async function handler(req, res) {
   if (withCors(req, res)) return;
@@ -12,6 +13,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
     await sql`DELETE FROM fixtures WHERE id = ${fixtureId} AND keeper_id = ${id}`;
     res.status(204).end();
     return;
