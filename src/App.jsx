@@ -1511,6 +1511,15 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             <div style={{ fontSize: 14, lineHeight: 1.55, color: "#DADADA", whiteSpace: "pre-wrap" }}>{m.notes}</div>
           </Card>
         )}
+        {m.videoUrl && (
+          <button
+            onClick={() => window.open(m.videoUrl, "_blank", "noopener,noreferrer")}
+            className="btn3d btn3d-outline"
+            style={{ width: "100%", marginTop: 12, padding: 14, borderRadius: 14, color: C.white, fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            🎥 Watch Game Film
+          </button>
+        )}
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
@@ -2057,6 +2066,17 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
           maxLength={5000}
           className="input-well"
           style={{ width: "100%", minHeight: 70, padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
+        />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Game Film Link (Trace, Veo, etc.)</div>
+        <input
+          value={form.videoUrl || ""}
+          onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
+          placeholder="Paste your highlight/game link once it's ready"
+          maxLength={2000}
+          className="input-well"
+          style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
         />
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>

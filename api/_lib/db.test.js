@@ -109,13 +109,13 @@ describe("row-to-JSON mappers", () => {
       id: "1", match_number: 3, opponent: "Harbor FC", saves: 5, shots_faced: 7, goals_against: 1,
       result: "W 2-1", goals_scored: 2, team_shots_on_goal: 8, minutes_played: 70,
       distribution_completed: 4, distribution_attempted: 5, claims: 1, punches: 0,
-      penalty_saves: 0, big_saves: 1, errors: 0, notes: "Good game",
+      penalty_saves: 0, big_saves: 1, errors: 0, notes: "Good game", video_url: "https://traceup.com/games/abc123",
     };
     expect(matchToJson(row)).toEqual({
       id: "1", n: 3, opp: "Harbor FC", saves: 5, shotsFaced: 7, ga: 1, res: "W 2-1",
       goalsScored: 2, teamShotsOnGoal: 8, minutesPlayed: 70, distributionCompleted: 4,
       distributionAttempted: 5, claims: 1, punches: 0, penaltySaves: 0, bigSaves: 1,
-      errors: 0, notes: "Good game",
+      errors: 0, notes: "Good game", videoUrl: "https://traceup.com/games/abc123",
     });
   });
 

@@ -72,6 +72,7 @@ export function matchToJson(row) {
     bigSaves: row.big_saves,
     errors: row.errors,
     notes: row.notes,
+    videoUrl: row.video_url,
   };
 }
 
