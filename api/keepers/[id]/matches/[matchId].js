@@ -34,6 +34,7 @@ async function handler(req, res) {
     if (p.bigSaves !== undefined && !validStatCount(p.bigSaves)) errors.push("bigSaves must be a non-negative integer (max 500)");
     if (p.errors !== undefined && !validStatCount(p.errors)) errors.push("errors must be a non-negative integer (max 500)");
     if (p.notes !== undefined && p.notes !== null && !validString(p.notes, { maxLength: 5000 })) errors.push("notes must be a string (max 5000 chars)");
+    if (p.videoUrl !== undefined && p.videoUrl !== null && !validString(p.videoUrl, { maxLength: 2000 })) errors.push("videoUrl must be a string (max 2000 chars)");
     if (errors.length) return badRequest(res, errors.join("; "));
 
     const [existing] = await sql`SELECT * FROM matches WHERE id = ${matchId} AND keeper_id = ${id}`;
@@ -59,6 +60,7 @@ async function handler(req, res) {
       big_saves: p.bigSaves ?? existing.big_saves,
       errors: p.errors ?? existing.errors,
       notes: p.notes !== undefined ? p.notes : existing.notes,
+      video_url: p.videoUrl !== undefined ? p.videoUrl : existing.video_url,
     };
 
     const [row] = await sql`
@@ -78,7 +80,8 @@ async function handler(req, res) {
         penalty_saves = ${next.penalty_saves},
         big_saves = ${next.big_saves},
         errors = ${next.errors},
-        notes = ${next.notes}
+        notes = ${next.notes},
+        video_url = ${next.video_url}
       WHERE id = ${matchId} AND keeper_id = ${id}
       RETURNING *
     `;

@@ -6,6 +6,13 @@ export default defineConfig({
   // Vercel serves the app from its domain root; GitHub Pages serves it from
   // /KeeperStat/. Vercel sets VERCEL=1 during its build, so branch on that.
   base: process.env.VERCEL ? "/" : "/KeeperStat/",
+  test: {
+    // api/_lib/db.js calls neon(process.env.DATABASE_URL) at module load
+    // time, which throws if unset — neon() itself never connects until a
+    // query actually runs, so a syntactically-valid placeholder is enough
+    // to let tests import the file's pure row-to-JSON mappers.
+    env: { DATABASE_URL: "postgres://user:pass@example.invalid/db" },
+  },
   build: {
     // The vendor chunk below is dominated by the Neon Auth SDK and React
     // itself — both load on every screen (auth state is checked throughout

@@ -19,7 +19,7 @@ const SAMPLE_MATCHES = [
   { opp: "River City FC", saves: 5, shotsFaced: 7, ga: 0, res: "W 1-0", goalsScored: 1, teamShotsOnGoal: 9, minutesPlayed: 70 },
 ];
 
-const detailDefaults = { distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0, penaltySaves: 0, bigSaves: 0, errors: 0, notes: null };
+const detailDefaults = { distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0, penaltySaves: 0, bigSaves: 0, errors: 0, notes: null, videoUrl: null };
 
 // Fresh state per call, so re-entering Demo App always starts clean.
 export function createDemoApi() {

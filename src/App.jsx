@@ -953,7 +953,7 @@ const SmallActionButton = ({ icon, label, count, color, onClick }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1047,10 +1047,15 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
             />
           </Card>
-          <button onClick={onSaveMatch} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
-            SAVE TO SEASON
+          <button
+            onClick={onSaveMatch}
+            disabled={savingMatch}
+            className="btn3d btn3d-orange"
+            style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: savingMatch ? 0.6 : 1 }}
+          >
+            {savingMatch ? "SAVING…" : "SAVE TO SEASON"}
           </button>
-          <button onClick={onDiscardMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14 }}>
+          <button onClick={onDiscardMatch} disabled={savingMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}>
             Discard Match
           </button>
           <button onClick={onResumeMatch} style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}>
@@ -1506,6 +1511,15 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             <div style={{ fontSize: 14, lineHeight: 1.55, color: "#DADADA", whiteSpace: "pre-wrap" }}>{m.notes}</div>
           </Card>
         )}
+        {m.videoUrl && (
+          <button
+            onClick={() => window.open(m.videoUrl, "_blank", "noopener,noreferrer")}
+            className="btn3d btn3d-outline"
+            style={{ width: "100%", marginTop: 12, padding: 14, borderRadius: 14, color: C.white, fontWeight: 700, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            🎥 Watch Game Film
+          </button>
+        )}
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
@@ -1913,12 +1927,20 @@ const TeamRecord = ({ matches }) => {
 const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   const [text, setText] = useState("");
   const fileInputRef = useRef(null);
+  // Ref guard (see saveMatchToHistory in the root component) — setText("")
+  // doesn't take effect until the next render, so a double-tap fires both
+  // handlers with the same stale `text` and would otherwise import every
+  // pasted row twice.
+  const importingRef = useRef(false);
 
   const importText = () => {
+    if (importingRef.current) return;
     const items = parseScheduleText(text);
     if (items.length) {
+      importingRef.current = true;
       onImport(items);
       setText("");
+      setTimeout(() => { importingRef.current = false; }, 0);
     }
   };
 
@@ -2044,6 +2066,17 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
           maxLength={5000}
           className="input-well"
           style={{ width: "100%", minHeight: 70, padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
+        />
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Game Film Link (Trace, Veo, etc.)</div>
+        <input
+          value={form.videoUrl || ""}
+          onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
+          placeholder="Paste your highlight/game link once it's ready"
+          maxLength={2000}
+          className="input-well"
+          style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
         />
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
@@ -2305,6 +2338,9 @@ export default function KeeperStat() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareData, setShareData] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [savingMatch, setSavingMatch] = useState(false);
+  const savingMatchRef = useRef(false);
+  const addingKeeperRef = useRef(false);
 
   // Surfaces a failed save/load that would otherwise only hit the console —
   // auto-dismisses so a stale error doesn't linger once the user's moved on.
@@ -2449,8 +2485,14 @@ export default function KeeperStat() {
     updateActiveKeeper({ photoUrl });
   };
   const addKeeper = () => {
+    // Ref guard (see saveMatchToHistory) — a double-tap fires both handlers
+    // synchronously in the same tick, before any state-based disabling could
+    // take effect, which would otherwise create two duplicate profiles.
+    if (addingKeeperRef.current) return;
+    addingKeeperRef.current = true;
     dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
       .then((keeper) => {
+        addingKeeperRef.current = false;
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
         setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
@@ -2459,6 +2501,7 @@ export default function KeeperStat() {
         setKeeperSheetOpen(false);
       })
       .catch((err) => {
+        addingKeeperRef.current = false;
         console.error("Failed to create keeper", err);
         showError("Couldn't create the new keeper profile. Please try again.");
       });
@@ -2583,6 +2626,13 @@ export default function KeeperStat() {
   };
   const setMatchNotes = (notes) => setMatch((m) => ({ ...m, notes }));
   const saveMatchToHistory = () => {
+    // A ref (not the savingMatch state) guards re-entry: two rapid clicks are
+    // dispatched synchronously in the same tick, before React re-renders with
+    // the button disabled, so a state check here would still read stale
+    // "false" for both and let a double-tap create a duplicate match.
+    if (savingMatchRef.current) return;
+    savingMatchRef.current = true;
+    setSavingMatch(true);
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
     const [mm] = match.clock.split(":").map(Number);
     const payload = {
@@ -2608,11 +2658,15 @@ export default function KeeperStat() {
         setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
         setMatch(emptyMatch());
         setMatchStatus("idle");
+        savingMatchRef.current = false;
+        setSavingMatch(false);
         go("report", record.n);
       })
       .catch((err) => {
         console.error("Failed to save match", err);
         showError("Couldn't save this match. Please try again.");
+        savingMatchRef.current = false;
+        setSavingMatch(false);
       });
   };
 
@@ -2715,7 +2769,7 @@ export default function KeeperStat() {
         activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)}
         matchStatus={matchStatus} baseline={baseline}
         onStartMatch={startMatch} onEndMatch={endMatch} onResumeMatch={resumeMatch}
-        onSaveMatch={saveMatchToHistory} onDiscardMatch={discardMatch}
+        onSaveMatch={saveMatchToHistory} savingMatch={savingMatch} onDiscardMatch={discardMatch}
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
       />
