@@ -6,4 +6,21 @@ export default defineConfig({
   // Vercel serves the app from its domain root; GitHub Pages serves it from
   // /KeeperStat/. Vercel sets VERCEL=1 during its build, so branch on that.
   base: process.env.VERCEL ? "/" : "/KeeperStat/",
+  build: {
+    // The vendor chunk below is dominated by the Neon Auth SDK and React
+    // itself — both load on every screen (auth state is checked throughout
+    // the app, not just on Login), so lazy-loading them would need a real
+    // async-boundary refactor, not just a bundler config change. Splitting
+    // app code out on its own is the safe, worthwhile win: it's now 118KB
+    // and changes every deploy, while the ~600KB vendor chunk is stable
+    // across deploys and caches in the browser instead of re-downloading.
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          return id.includes("node_modules") ? "vendor" : undefined;
+        },
+      },
+    },
+  },
 });
