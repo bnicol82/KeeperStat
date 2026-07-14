@@ -12,9 +12,19 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
 ]);
 
+// Every PR also gets its own Vercel preview deployment at a unique
+// keeperstat-<hash-or-branch>-<team>.vercel.app origin that can't be listed
+// ahead of time — match this project's preview URLs by prefix rather than
+// allowing *.vercel.app generally (which would also allow other projects).
+const VERCEL_PREVIEW_ORIGIN = /^https:\/\/keeperstat-[a-z0-9-]+\.vercel\.app$/;
+
+function isAllowedOrigin(origin) {
+  return !!origin && (ALLOWED_ORIGINS.has(origin) || VERCEL_PREVIEW_ORIGIN.test(origin));
+}
+
 export function withCors(req, res) {
   const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.has(origin)) {
+  if (isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
