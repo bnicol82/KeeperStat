@@ -3,7 +3,7 @@ import { api, setUnauthorizedHandler } from "./api.js";
 import { authClient, getAuthToken, setCachedAuthToken } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
-import { LEVELS, goalsPrevented, impactScoreFromStats } from "../shared/scoring.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
 /* ============================================================
@@ -516,22 +516,9 @@ const Ring = ({ value, size = 120, stroke = 10, color = C.green, label, sub }) =
 const scoreWord = (s) => (s >= 85 ? "ELITE" : s >= 70 ? "STRONG" : s >= 55 ? "GOOD" : s >= 40 ? "DEVELOPING" : "TOUGH DAY");
 
 // ---------- scoring engine ----------
-// LEVELS, goalsPrevented, and impactScoreFromStats now live in
-// shared/scoring.js so the backend rankings endpoint computes the exact
-// same score as the frontend.
-
-// GDE — Goalkeeper Defensive Efficiency: saves / shots faced (0–1)
-const gde = (saves, shotsFaced) => (shotsFaced > 0 ? saves / shotsFaced : 0);
-// TOE — Team Offensive Efficiency: goals scored / team shots on goal (0–1).
-// Returns null when team shot data isn't available (e.g. live-tracked
-// matches, which only capture the keeper's own stats today) rather than
-// silently reporting 0, which would misrepresent the attack as wasteful.
-const toe = (goalsScored, teamShotsOnGoal) => (teamShotsOnGoal ? goalsScored / teamShotsOnGoal : null);
-// GMIS — Goalkeeper Match Impact Score: GDE − TOE. Positive = keeper
-// outperformed the attack this match; negative = the attack carried more
-// of the game than the keeper did. This is match *context*, not a grade —
-// it depends on teammates' finishing, which the keeper doesn't control.
-const gmis = (gdeVal, toeVal) => (toeVal === null ? null : gdeVal - toeVal);
+// LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, and gmis now live
+// in shared/scoring.js so the backend rankings endpoint computes the exact
+// same score as the frontend, and so they're covered by shared/scoring.test.js.
 
 const gmisNarrative = (gmisVal, res) => {
   const win = res.startsWith("W"), loss = res.startsWith("L");
@@ -1521,7 +1508,9 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
             {gmisVal === null ? (
               <div style={{ fontSize: 13.5, color: C.grayDark, lineHeight: 1.55 }}>
-                Attack shot data wasn't tracked for this match, so keeper-vs-attack context isn't available. This shows up for matches logged from the live tracker, which doesn't capture the team's offensive shots yet.
+                {gdeVal === null
+                  ? `${activeKeeper.name} didn't face any shots this match, so there's no defensive efficiency to compare against the attack.`
+                  : "Team shot data wasn't tracked for this match, so keeper-vs-attack context isn't available. Log Team Shots on Goal from the live tracker to unlock this next time."}
               </div>
             ) : (
               <>

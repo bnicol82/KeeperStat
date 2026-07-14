@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LEVELS, goalsPrevented, impactScoreFromStats } from "./scoring.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "./scoring.js";
 
 describe("LEVELS", () => {
   it("has a baseline between 0 and 1 for every level", () => {
@@ -62,5 +62,44 @@ describe("impactScoreFromStats", () => {
   it("handles a 0-shots-faced match without dividing by zero", () => {
     expect(() => impactScoreFromStats(0, 0, 0, 0.65)).not.toThrow();
     expect(Number.isFinite(impactScoreFromStats(0, 0, 0, 0.65))).toBe(true);
+  });
+});
+
+describe("gde", () => {
+  it("is the save rate when shots were faced", () => {
+    expect(gde(8, 10)).toBeCloseTo(0.8);
+  });
+
+  it("returns null (not 0) when no shots were faced, so a shutout isn't misread as a poor defensive game", () => {
+    expect(gde(0, 0)).toBeNull();
+  });
+});
+
+describe("toe", () => {
+  it("is the conversion rate when team shots on goal is tracked", () => {
+    expect(toe(2, 8)).toBeCloseTo(0.25);
+  });
+
+  it("returns null (not 0) when team shots on goal isn't tracked, so the attack isn't misread as wasteful", () => {
+    expect(toe(2, 0)).toBeNull();
+    expect(toe(0, null)).toBeNull();
+  });
+});
+
+describe("gmis", () => {
+  it("is the difference between GDE and TOE", () => {
+    expect(gmis(0.8, 0.25)).toBeCloseTo(0.55);
+  });
+
+  it("is null when GDE is unavailable (0 shots faced)", () => {
+    expect(gmis(null, 0.25)).toBeNull();
+  });
+
+  it("is null when TOE is unavailable (team shots not tracked)", () => {
+    expect(gmis(0.8, null)).toBeNull();
+  });
+
+  it("is null when both sides are unavailable", () => {
+    expect(gmis(null, null)).toBeNull();
   });
 });
