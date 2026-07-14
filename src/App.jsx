@@ -777,7 +777,13 @@ const Login = ({ onAuthenticated, onBack }) => {
   };
 
   const titles = { signin: "Log In", signup: "Create Account", verify: "Verify Your Email", forgot: "Reset Password", reset: "Reset Password" };
-  const canSubmit = email.trim() && password.length >= 8 && !loading;
+  // Sign-up enforces the 8-char minimum client-side (matching what the
+  // server requires for a new password), but sign-in must not — the
+  // server, not a client-side length heuristic, is the only authority on
+  // whether an existing account's actual password is correct. Requiring
+  // 8+ chars to even attempt sign-in would lock out any account whose real
+  // password happens to be shorter for any reason.
+  const canSubmit = email.trim() && (mode === "signup" ? password.length >= 8 : password.length > 0) && !loading;
   const canSubmitVerify = otp.trim().length > 0 && !loading;
   const canSubmitForgot = email.trim() && !loading;
   const canSubmitReset = otp.trim().length > 0 && newPassword.length >= 8 && !loading;
