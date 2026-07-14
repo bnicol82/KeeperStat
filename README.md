@@ -48,3 +48,13 @@ Demo mode works with no environment variables at all. Real accounts need `DATABA
 - `.github/workflows/neon-preview.yml` creates/tears down a Neon branch per PR and runs migrations against it.
 
 Note: these give visible pass/fail checks, but don't themselves block a merge on a red check — that requires enabling "require status checks to pass" under the repo's branch protection settings.
+
+## Roadmap: video / Trace / Veo
+
+Every match can already carry an optional `videoUrl` (`matches.video_url`), surfaced as a "Watch Game Film" button on the Match Report once it's set — a keeper/parent pastes in their Trace or Veo share link once the highlight reel is ready, the same pattern already used for `keepers.rankings_url`.
+
+That's the ceiling of what's buildable without a real integration decision, and it's worth being honest about why:
+
+- **Veo** publishes a developer API (`developer.veo.co.uk`), but it's gated behind a partner agreement rather than self-serve signup — a real integration (pulling clips/events by recording ID, embedding a stream) would need that business relationship in place first, not just an API key.
+- **Trace** (traceup.com) — wearable sock sensor + AI camera, purpose-built for youth soccer, generates a personalized per-player highlight reel and stats (touches, passes, shots, defending) — has no published third-party API at all as of this writing.
+- **Building a from-scratch keeper-specific video/stat tracker** is a materially different, much larger project than anything else in this codebase: a camera/recording pipeline (mobile camera APIs or a dedicated device), either a computer-vision model trained to detect keeper-specific events (saves, distributions, claims) or a manual tagging workflow synced to a video timeline, and video storage/bandwidth costs that dwarf the current Vercel Blob photo-upload footprint. Worth scoping deliberately as its own project rather than incrementally — not something to start speculatively without a specific decision on approach (license an existing platform vs. build).
