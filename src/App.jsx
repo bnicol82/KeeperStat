@@ -1875,7 +1875,7 @@ const Avatar = ({ keeper, style }) =>
   );
 
 // ---------- keeper switcher sheet ----------
-const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
+const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd, addingKeeper }) => (
   <>
     <div className={`sheet-backdrop ${open ? "open" : ""}`} onClick={onClose} />
     <div className={`sheet ${open ? "open" : ""}`}>
@@ -1894,9 +1894,9 @@ const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
           {k.id === activeId ? <span style={{ color: C.orange, fontSize: 17, fontWeight: 700 }}>✓</span> : <span className="sheet-row-chev">›</span>}
         </button>
       ))}
-      <button className="sheet-row" onClick={onAdd}>
+      <button className="sheet-row" onClick={onAdd} disabled={addingKeeper} style={{ opacity: addingKeeper ? 0.6 : 1 }}>
         <span className="keeper-avatar" style={{ background: "transparent", border: `1.5px dashed ${C.orange}88`, color: C.orange, boxShadow: "none" }}>+</span>
-        <span className="sheet-row-text"><span className="sheet-row-title" style={{ color: C.orange }}>Add Keeper</span></span>
+        <span className="sheet-row-text"><span className="sheet-row-title" style={{ color: C.orange }}>{addingKeeper ? "Adding…" : "Add Keeper"}</span></span>
       </button>
     </div>
   </>
@@ -1931,6 +1931,7 @@ const TeamRecord = ({ matches }) => {
 
 const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   const [text, setText] = useState("");
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
   // Ref guard (see saveMatchToHistory in the root component) — setText("")
   // doesn't take effect until the next render, so a double-tap fires both
@@ -1938,14 +1939,16 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   // pasted row twice.
   const importingRef = useRef(false);
 
-  const importText = () => {
+  const importText = async () => {
     if (importingRef.current) return;
     const items = parseScheduleText(text);
     if (items.length) {
       importingRef.current = true;
-      onImport(items);
+      setImporting(true);
       setText("");
-      setTimeout(() => { importingRef.current = false; }, 0);
+      await onImport(items);
+      importingRef.current = false;
+      setImporting(false);
     }
   };
 
@@ -1975,8 +1978,8 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
         style={{ width: "100%", minHeight: 76, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical", marginBottom: 10 }}
       />
       <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={importText} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}>
-          Import Pasted Rows
+        <button onClick={importText} disabled={importing} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5, opacity: importing ? 0.6 : 1 }}>
+          {importing ? "Importing…" : "Import Pasted Rows"}
         </button>
         <button onClick={() => fileInputRef.current?.click()} className="btn3d btn3d-outline" style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 700, fontSize: 13 }}>
           Upload CSV
@@ -2124,7 +2127,7 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 );
 
 const Settings = ({
-  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
+  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, addingKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
   matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto, onError,
 }) => {
   const session = authClient.useSession();
@@ -2173,8 +2176,8 @@ const Settings = ({
           </div>
         ))}
         <div style={{ padding: 14 }}>
-          <button onClick={addKeeper} className="btn3d btn3d-outline" style={{ width: "100%", padding: 12, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 13 }}>
-            + Add Keeper
+          <button onClick={addKeeper} disabled={addingKeeper} className="btn3d btn3d-outline" style={{ width: "100%", padding: 12, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 13, opacity: addingKeeper ? 0.6 : 1 }}>
+            {addingKeeper ? "Adding…" : "+ Add Keeper"}
           </button>
         </div>
       </Card>
@@ -2358,6 +2361,7 @@ export default function KeeperStat() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [savingMatch, setSavingMatch] = useState(false);
   const savingMatchRef = useRef(false);
+  const [addingKeeper, setAddingKeeper] = useState(false);
   const addingKeeperRef = useRef(false);
 
   // Surfaces a failed save/load that would otherwise only hit the console —
@@ -2508,9 +2512,11 @@ export default function KeeperStat() {
     // take effect, which would otherwise create two duplicate profiles.
     if (addingKeeperRef.current) return;
     addingKeeperRef.current = true;
+    setAddingKeeper(true);
     dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
       .then((keeper) => {
         addingKeeperRef.current = false;
+        setAddingKeeper(false);
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
         setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
@@ -2520,6 +2526,7 @@ export default function KeeperStat() {
       })
       .catch((err) => {
         addingKeeperRef.current = false;
+        setAddingKeeper(false);
         console.error("Failed to create keeper", err);
         showError("Couldn't create the new keeper profile. Please try again.");
       });
@@ -2582,7 +2589,7 @@ export default function KeeperStat() {
   };
 
   const importFixtures = (items) => {
-    dataApi.importFixtures(activeKeeperId, items)
+    return dataApi.importFixtures(activeKeeperId, items)
       .then((created) => {
         setFixturesByKeeper((fb) => ({
           ...fb,
@@ -2810,6 +2817,7 @@ export default function KeeperStat() {
         updateActiveKeeper={updateActiveKeeper}
         selectKeeper={selectKeeper}
         addKeeper={addKeeper}
+        addingKeeper={addingKeeper}
         onDeleteKeeper={deleteKeeper}
         showGMIS={showGMIS} setShowGMIS={setShowGMIS}
         notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}
@@ -3094,6 +3102,7 @@ export default function KeeperStat() {
             activeId={activeKeeperId}
             onSelect={selectKeeper}
             onAdd={addKeeper}
+            addingKeeper={addingKeeper}
           />
         )}
         {screen !== "welcome" && screen !== "login" && <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />}
