@@ -1055,7 +1055,12 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           >
             {savingMatch ? "SAVING…" : "SAVE TO SEASON"}
           </button>
-          <button onClick={onDiscardMatch} disabled={savingMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}>
+          <button
+            onClick={() => { if (window.confirm("Discard this match? Everything you've tracked so far will be lost. This can't be undone.")) onDiscardMatch(); }}
+            disabled={savingMatch}
+            className="btn3d btn3d-outline"
+            style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}
+          >
             Discard Match
           </button>
           <button onClick={onResumeMatch} style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}>
