@@ -575,6 +575,26 @@ const EmptyState = ({ icon = "🧤", title, sub, cta, onCta }) => (
   </Card>
 );
 
+// ---------- error toast (surfaces failed saves/loads that used to be silent) ----------
+const ErrorToast = ({ message, onDismiss }) => {
+  if (!message) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        position: "absolute", left: 12, right: 12, top: "calc(12px + env(safe-area-inset-top))", zIndex: 60,
+        display: "flex", alignItems: "center", gap: 10, padding: "12px 12px 12px 14px", borderRadius: 14,
+        background: "linear-gradient(180deg, #3a1414, #240d0d)", border: `1px solid ${C.red}66`,
+        boxShadow: "0 10px 24px rgba(0,0,0,.5)",
+      }}
+    >
+      <span style={{ fontSize: 17, flexShrink: 0 }}>⚠️</span>
+      <span style={{ flex: 1, fontSize: 13.5, color: "#F4D9D9", lineHeight: 1.4 }}>{message}</span>
+      <button onClick={onDismiss} aria-label="Dismiss" style={{ background: "none", border: "none", color: "#F4D9D9", fontSize: 15, cursor: "pointer", padding: 4, flexShrink: 0 }}>✕</button>
+    </div>
+  );
+};
+
 // ---------- line chart (SVG) ----------
 const LineChart = ({ data, height = 160 }) => {
   const w = 320, pad = { l: 30, r: 12, t: 12, b: 24 };
@@ -2054,7 +2074,7 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 
 const Settings = ({
   go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
-  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto,
+  matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto, onError,
 }) => {
   const session = authClient.useSession();
   const accountLabel = session?.data?.user?.email || "Demo Mode — nothing here is saved";
@@ -2069,6 +2089,7 @@ const Settings = ({
       await onUploadPhoto(file);
     } catch (err) {
       console.error("Failed to upload photo", err);
+      onError("Couldn't upload that photo. Please try again.");
     } finally {
       setPhotoUploading(false);
     }
@@ -2276,6 +2297,16 @@ export default function KeeperStat() {
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
   const [shareData, setShareData] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  // Surfaces a failed save/load that would otherwise only hit the console —
+  // auto-dismisses so a stale error doesn't linger once the user's moved on.
+  const showError = (message) => setErrorMessage(message);
+  useEffect(() => {
+    if (!errorMessage) return;
+    const t = setTimeout(() => setErrorMessage(null), 5000);
+    return () => clearTimeout(t);
+  }, [errorMessage]);
 
   // Two ways into the app: "demo" runs entirely on local, throwaway sample
   // data (src/demoApi.js); "auth" is a real Neon Auth account whose data
@@ -2362,6 +2393,7 @@ export default function KeeperStat() {
         }
       } catch (err) {
         console.error("Failed to load keepers", err);
+        showError("Couldn't load your keeper profiles. Check your connection and try again.");
       } finally {
         if (!cancelled) setKeepersLoading(false);
       }
@@ -2400,7 +2432,10 @@ export default function KeeperStat() {
 
   const updateActiveKeeper = (patch) => {
     setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
-    dataApi.updateKeeper(activeKeeperId, patch).catch((err) => console.error("Failed to save keeper", err));
+    dataApi.updateKeeper(activeKeeperId, patch).catch((err) => {
+      console.error("Failed to save keeper", err);
+      showError("Couldn't save that change. Check your connection and try again.");
+    });
   };
   const uploadPhoto = async (file) => {
     const photoUrl = await dataApi.uploadKeeperPhoto(activeKeeperId, file);
@@ -2416,7 +2451,10 @@ export default function KeeperStat() {
         setActiveKeeperId(keeper.id);
         setKeeperSheetOpen(false);
       })
-      .catch((err) => console.error("Failed to create keeper", err));
+      .catch((err) => {
+        console.error("Failed to create keeper", err);
+        showError("Couldn't create the new keeper profile. Please try again.");
+      });
   };
   const selectKeeper = (id) => {
     setActiveKeeperId(id);
@@ -2424,17 +2462,26 @@ export default function KeeperStat() {
     if (!matchesByKeeper[id]) {
       dataApi.listMatches(id)
         .then((ms) => setMatchesByKeeper((mb) => ({ ...mb, [id]: ms })))
-        .catch((err) => console.error("Failed to load matches", err));
+        .catch((err) => {
+          console.error("Failed to load matches", err);
+          showError("Couldn't load matches for this keeper.");
+        });
     }
     if (!fixturesByKeeper[id]) {
       dataApi.listFixtures(id)
         .then((fx) => setFixturesByKeeper((fb) => ({ ...fb, [id]: fx })))
-        .catch((err) => console.error("Failed to load fixtures", err));
+        .catch((err) => {
+          console.error("Failed to load fixtures", err);
+          showError("Couldn't load the schedule for this keeper.");
+        });
     }
     if (!interviewByKeeper[id]) {
       dataApi.listInterviewResponses(id)
         .then((iv) => setInterviewByKeeper((ib) => ({ ...ib, [id]: iv })))
-        .catch((err) => console.error("Failed to load interview responses", err));
+        .catch((err) => {
+          console.error("Failed to load interview responses", err);
+          showError("Couldn't load interview answers for this keeper.");
+        });
     }
   };
   const deleteKeeper = (id) => {
@@ -2449,7 +2496,10 @@ export default function KeeperStat() {
         setFixturesByKeeper((fb) => { const next = { ...fb }; delete next[id]; return next; });
         setInterviewByKeeper((ib) => { const next = { ...ib }; delete next[id]; return next; });
       })
-      .catch((err) => console.error("Failed to delete keeper", err));
+      .catch((err) => {
+        console.error("Failed to delete keeper", err);
+        showError("Couldn't delete that keeper profile. Please try again.");
+      });
   };
   const saveInterviewAnswer = (tab, questionIndex, answer) => {
     const keeperId = activeKeeperId;
@@ -2457,7 +2507,10 @@ export default function KeeperStat() {
       const existing = (ib[keeperId] || []).filter((r) => !(r.tab === tab && r.questionIndex === questionIndex));
       return { ...ib, [keeperId]: [...existing, { tab, questionIndex, answer }] };
     });
-    dataApi.saveInterviewResponse(keeperId, { tab, questionIndex, answer }).catch((err) => console.error("Failed to save interview answer", err));
+    dataApi.saveInterviewResponse(keeperId, { tab, questionIndex, answer }).catch((err) => {
+      console.error("Failed to save interview answer", err);
+      showError("Couldn't save your answer. Please try again.");
+    });
   };
 
   const importFixtures = (items) => {
@@ -2468,22 +2521,34 @@ export default function KeeperStat() {
           [activeKeeperId]: [...(fb[activeKeeperId] || []), ...created].sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")),
         }));
       })
-      .catch((err) => console.error("Failed to import schedule", err));
+      .catch((err) => {
+        console.error("Failed to import schedule", err);
+        showError("Couldn't import the schedule. Please try again.");
+      });
   };
   const deleteFixture = (fixtureId) => {
     setFixturesByKeeper((fb) => ({ ...fb, [activeKeeperId]: (fb[activeKeeperId] || []).filter((f) => f.id !== fixtureId) }));
-    dataApi.deleteFixture(activeKeeperId, fixtureId).catch((err) => console.error("Failed to delete fixture", err));
+    dataApi.deleteFixture(activeKeeperId, fixtureId).catch((err) => {
+      console.error("Failed to delete fixture", err);
+      showError("Couldn't delete that match from the schedule.");
+    });
   };
   const updateMatch = (matchId, patch) => {
     setMatchesByKeeper((mb) => ({
       ...mb,
       [activeKeeperId]: (mb[activeKeeperId] || []).map((m) => (m.id === matchId ? { ...m, ...patch } : m)),
     }));
-    dataApi.updateMatch(activeKeeperId, matchId, patch).catch((err) => console.error("Failed to update match", err));
+    dataApi.updateMatch(activeKeeperId, matchId, patch).catch((err) => {
+      console.error("Failed to update match", err);
+      showError("Couldn't save your changes to that match.");
+    });
   };
   const deleteMatch = (matchId) => {
     setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: (mb[activeKeeperId] || []).filter((m) => m.id !== matchId) }));
-    dataApi.deleteMatch(activeKeeperId, matchId).catch((err) => console.error("Failed to delete match", err));
+    dataApi.deleteMatch(activeKeeperId, matchId).catch((err) => {
+      console.error("Failed to delete match", err);
+      showError("Couldn't delete that match.");
+    });
   };
 
   // live clock tick — only while a match is actually in progress
@@ -2538,7 +2603,10 @@ export default function KeeperStat() {
         setMatchStatus("idle");
         go("report", record.n);
       })
-      .catch((err) => console.error("Failed to save match", err));
+      .catch((err) => {
+        console.error("Failed to save match", err);
+        showError("Couldn't save this match. Please try again.");
+      });
   };
 
   const dispatch = (a) => {
@@ -2611,7 +2679,11 @@ export default function KeeperStat() {
     setRankingsLoading(true);
     api.listRankings()
       .then(setRankings)
-      .catch((err) => { console.error("Failed to load rankings", err); setRankings([]); })
+      .catch((err) => {
+        console.error("Failed to load rankings", err);
+        showError("Couldn't load the rankings leaderboard.");
+        setRankings([]);
+      })
       .finally(() => setRankingsLoading(false));
   };
 
@@ -2670,6 +2742,7 @@ export default function KeeperStat() {
         onDeleteFixture={deleteFixture}
         onLogout={handleLogout}
         onUploadPhoto={uploadPhoto}
+        onError={showError}
       />
     ),
   };
@@ -2945,6 +3018,7 @@ export default function KeeperStat() {
           />
         )}
         {screen !== "welcome" && screen !== "login" && <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />}
+        <ErrorToast message={errorMessage} onDismiss={() => setErrorMessage(null)} />
       </div>
     </div>
   );
