@@ -2312,6 +2312,7 @@ export default function KeeperStat() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [savingMatch, setSavingMatch] = useState(false);
   const savingMatchRef = useRef(false);
+  const addingKeeperRef = useRef(false);
 
   // Surfaces a failed save/load that would otherwise only hit the console —
   // auto-dismisses so a stale error doesn't linger once the user's moved on.
@@ -2456,8 +2457,14 @@ export default function KeeperStat() {
     updateActiveKeeper({ photoUrl });
   };
   const addKeeper = () => {
+    // Ref guard (see saveMatchToHistory) — a double-tap fires both handlers
+    // synchronously in the same tick, before any state-based disabling could
+    // take effect, which would otherwise create two duplicate profiles.
+    if (addingKeeperRef.current) return;
+    addingKeeperRef.current = true;
     dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
       .then((keeper) => {
+        addingKeeperRef.current = false;
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
         setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
@@ -2466,6 +2473,7 @@ export default function KeeperStat() {
         setKeeperSheetOpen(false);
       })
       .catch((err) => {
+        addingKeeperRef.current = false;
         console.error("Failed to create keeper", err);
         showError("Couldn't create the new keeper profile. Please try again.");
       });
