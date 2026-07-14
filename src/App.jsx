@@ -969,6 +969,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               value={opponentInput}
               onChange={(e) => setOpponentInput(e.target.value)}
               placeholder="e.g. River City FC"
+              maxLength={200}
               className="input-well"
               style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: nextFixture ? 6 : 12 }}
             />
@@ -1041,6 +1042,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               value={match.notes}
               onChange={(e) => onNotesChange(e.target.value)}
               placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+              maxLength={5000}
               className="input-well"
               style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
             />
@@ -1111,6 +1113,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
             value={match.notes}
             onChange={(e) => onNotesChange(e.target.value)}
             placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+            maxLength={5000}
             className="input-well"
             style={{ width: "100%", minHeight: 60, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
           />
@@ -1715,6 +1718,7 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commit}
               placeholder="Type your answer..."
+              maxLength={5000}
               className="input-well"
               style={{ flex: 1, minHeight: 140, resize: "none", padding: 12, color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
             />
@@ -1998,6 +2002,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         value={form[key] ?? ""}
         onChange={(e) => setForm({ ...form, [key]: type === "number" ? Number(e.target.value) : e.target.value })}
         className="input-well"
+        {...(type === "number" ? { min: 0, max: 500 } : { maxLength: 200 })}
         style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
       />
     </div>
@@ -2036,6 +2041,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
           value={form.notes ?? ""}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
           placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+          maxLength={5000}
           className="input-well"
           style={{ width: "100%", minHeight: 70, padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
         />
@@ -2142,6 +2148,7 @@ const Settings = ({
         <input
           value={activeKeeper.name}
           onChange={(e) => updateActiveKeeper({ name: e.target.value })}
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2149,6 +2156,7 @@ const Settings = ({
         <input
           value={activeKeeper.team}
           onChange={(e) => updateActiveKeeper({ team: e.target.value })}
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2157,6 +2165,7 @@ const Settings = ({
           value={activeKeeper.rankingsUrl || ""}
           onChange={(e) => updateActiveKeeper({ rankingsUrl: e.target.value })}
           placeholder="https://usasportstatistics.net/..."
+          maxLength={2000}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 6 }}
         />
@@ -2181,6 +2190,7 @@ const Settings = ({
             updateActiveKeeper({ focusArea: title.trim() ? { title, note: activeKeeper.focusArea?.note || "" } : null });
           }}
           placeholder="e.g. Low Diving Saves"
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2190,6 +2200,7 @@ const Settings = ({
           onChange={(e) => updateActiveKeeper({ focusArea: { title: activeKeeper.focusArea.title, note: e.target.value } })}
           disabled={!activeKeeper.focusArea?.title}
           placeholder={activeKeeper.focusArea?.title ? "e.g. Work on technique and explosiveness" : "Add a title first"}
+          maxLength={1000}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12, opacity: activeKeeper.focusArea?.title ? 1 : 0.5 }}
         />
@@ -2198,6 +2209,7 @@ const Settings = ({
           value={activeKeeper.nextGoal || ""}
           onChange={(e) => updateActiveKeeper({ nextGoal: e.target.value })}
           placeholder="e.g. Increase distribution accuracy above 80%"
+          maxLength={500}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
         />
