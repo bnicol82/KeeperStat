@@ -3,7 +3,7 @@ import { api, setUnauthorizedHandler } from "./api.js";
 import { authClient, getAuthToken, setCachedAuthToken } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
-import { LEVELS, goalsPrevented, impactScoreFromStats } from "../shared/scoring.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
 /* ============================================================
@@ -516,22 +516,9 @@ const Ring = ({ value, size = 120, stroke = 10, color = C.green, label, sub }) =
 const scoreWord = (s) => (s >= 85 ? "ELITE" : s >= 70 ? "STRONG" : s >= 55 ? "GOOD" : s >= 40 ? "DEVELOPING" : "TOUGH DAY");
 
 // ---------- scoring engine ----------
-// LEVELS, goalsPrevented, and impactScoreFromStats now live in
-// shared/scoring.js so the backend rankings endpoint computes the exact
-// same score as the frontend.
-
-// GDE — Goalkeeper Defensive Efficiency: saves / shots faced (0–1)
-const gde = (saves, shotsFaced) => (shotsFaced > 0 ? saves / shotsFaced : 0);
-// TOE — Team Offensive Efficiency: goals scored / team shots on goal (0–1).
-// Returns null when team shot data isn't available (e.g. live-tracked
-// matches, which only capture the keeper's own stats today) rather than
-// silently reporting 0, which would misrepresent the attack as wasteful.
-const toe = (goalsScored, teamShotsOnGoal) => (teamShotsOnGoal ? goalsScored / teamShotsOnGoal : null);
-// GMIS — Goalkeeper Match Impact Score: GDE − TOE. Positive = keeper
-// outperformed the attack this match; negative = the attack carried more
-// of the game than the keeper did. This is match *context*, not a grade —
-// it depends on teammates' finishing, which the keeper doesn't control.
-const gmis = (gdeVal, toeVal) => (toeVal === null ? null : gdeVal - toeVal);
+// LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, and gmis now live
+// in shared/scoring.js so the backend rankings endpoint computes the exact
+// same score as the frontend, and so they're covered by shared/scoring.test.js.
 
 const gmisNarrative = (gmisVal, res) => {
   const win = res.startsWith("W"), loss = res.startsWith("L");
@@ -982,6 +969,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               value={opponentInput}
               onChange={(e) => setOpponentInput(e.target.value)}
               placeholder="e.g. River City FC"
+              maxLength={200}
               className="input-well"
               style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: nextFixture ? 6 : 12 }}
             />
@@ -1054,6 +1042,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               value={match.notes}
               onChange={(e) => onNotesChange(e.target.value)}
               placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+              maxLength={5000}
               className="input-well"
               style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
             />
@@ -1124,6 +1113,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
             value={match.notes}
             onChange={(e) => onNotesChange(e.target.value)}
             placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+            maxLength={5000}
             className="input-well"
             style={{ width: "100%", minHeight: 60, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
           />
@@ -1521,7 +1511,9 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             <div style={{ fontSize: 13, fontWeight: 700, color: C.gray, letterSpacing: 0.5, marginBottom: 10 }}>MATCH CONTEXT</div>
             {gmisVal === null ? (
               <div style={{ fontSize: 13.5, color: C.grayDark, lineHeight: 1.55 }}>
-                Attack shot data wasn't tracked for this match, so keeper-vs-attack context isn't available. This shows up for matches logged from the live tracker, which doesn't capture the team's offensive shots yet.
+                {gdeVal === null
+                  ? `${activeKeeper.name} didn't face any shots this match, so there's no defensive efficiency to compare against the attack.`
+                  : "Team shot data wasn't tracked for this match, so keeper-vs-attack context isn't available. Log Team Shots on Goal from the live tracker to unlock this next time."}
               </div>
             ) : (
               <>
@@ -1726,6 +1718,7 @@ const Interview = ({ go, answers, onSaveAnswer, activeKeeper }) => {
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commit}
               placeholder="Type your answer..."
+              maxLength={5000}
               className="input-well"
               style={{ flex: 1, minHeight: 140, resize: "none", padding: 12, color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
             />
@@ -2009,6 +2002,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         value={form[key] ?? ""}
         onChange={(e) => setForm({ ...form, [key]: type === "number" ? Number(e.target.value) : e.target.value })}
         className="input-well"
+        {...(type === "number" ? { min: 0, max: 500 } : { maxLength: 200 })}
         style={{ width: "100%", padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
       />
     </div>
@@ -2047,6 +2041,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
           value={form.notes ?? ""}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
           placeholder="Sweeper actions, 1v1 duels, anything else worth remembering about this match…"
+          maxLength={5000}
           className="input-well"
           style={{ width: "100%", minHeight: 70, padding: "8px 10px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
         />
@@ -2153,6 +2148,7 @@ const Settings = ({
         <input
           value={activeKeeper.name}
           onChange={(e) => updateActiveKeeper({ name: e.target.value })}
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2160,6 +2156,7 @@ const Settings = ({
         <input
           value={activeKeeper.team}
           onChange={(e) => updateActiveKeeper({ team: e.target.value })}
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2168,6 +2165,7 @@ const Settings = ({
           value={activeKeeper.rankingsUrl || ""}
           onChange={(e) => updateActiveKeeper({ rankingsUrl: e.target.value })}
           placeholder="https://usasportstatistics.net/..."
+          maxLength={2000}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 6 }}
         />
@@ -2192,6 +2190,7 @@ const Settings = ({
             updateActiveKeeper({ focusArea: title.trim() ? { title, note: activeKeeper.focusArea?.note || "" } : null });
           }}
           placeholder="e.g. Low Diving Saves"
+          maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
         />
@@ -2201,6 +2200,7 @@ const Settings = ({
           onChange={(e) => updateActiveKeeper({ focusArea: { title: activeKeeper.focusArea.title, note: e.target.value } })}
           disabled={!activeKeeper.focusArea?.title}
           placeholder={activeKeeper.focusArea?.title ? "e.g. Work on technique and explosiveness" : "Add a title first"}
+          maxLength={1000}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12, opacity: activeKeeper.focusArea?.title ? 1 : 0.5 }}
         />
@@ -2209,6 +2209,7 @@ const Settings = ({
           value={activeKeeper.nextGoal || ""}
           onChange={(e) => updateActiveKeeper({ nextGoal: e.target.value })}
           placeholder="e.g. Increase distribution accuracy above 80%"
+          maxLength={500}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none" }}
         />

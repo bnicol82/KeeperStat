@@ -30,3 +30,20 @@ export const impactScoreFromStats = (shotsFaced, saves, goalsAgainst, baseline) 
   s += Math.min(shotsFaced * 0.5, 6); // small reward for workload/volume
   return Math.round(Math.min(99, Math.max(5, s)));
 };
+
+// GDE — Goalkeeper Defensive Efficiency: saves / shots faced (0–1). Returns
+// null when no shots were faced rather than 0, which would misrepresent a
+// shutout with zero work as a poor defensive performance.
+export const gde = (saves, shotsFaced) => (shotsFaced > 0 ? saves / shotsFaced : null);
+
+// TOE — Team Offensive Efficiency: goals scored / team shots on goal (0–1).
+// Returns null when team shot data isn't available for this match rather
+// than silently reporting 0, which would misrepresent the attack as wasteful.
+export const toe = (goalsScored, teamShotsOnGoal) => (teamShotsOnGoal ? goalsScored / teamShotsOnGoal : null);
+
+// GMIS — Goalkeeper Match Impact Score: GDE − TOE. Positive = keeper
+// outperformed the attack this match; negative = the attack carried more of
+// the game than the keeper did. This is match *context*, not a grade — it
+// depends on teammates' finishing, which the keeper doesn't control. Null
+// whenever either side of the comparison isn't available for this match.
+export const gmis = (gdeVal, toeVal) => (gdeVal === null || toeVal === null ? null : gdeVal - toeVal);
