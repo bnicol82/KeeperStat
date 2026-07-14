@@ -953,7 +953,7 @@ const SmallActionButton = ({ icon, label, count, color, onClick }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1047,10 +1047,15 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               style={{ width: "100%", minHeight: 70, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical" }}
             />
           </Card>
-          <button onClick={onSaveMatch} className="btn3d btn3d-orange" style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
-            SAVE TO SEASON
+          <button
+            onClick={onSaveMatch}
+            disabled={savingMatch}
+            className="btn3d btn3d-orange"
+            style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1, opacity: savingMatch ? 0.6 : 1 }}
+          >
+            {savingMatch ? "SAVING…" : "SAVE TO SEASON"}
           </button>
-          <button onClick={onDiscardMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14 }}>
+          <button onClick={onDiscardMatch} disabled={savingMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}>
             Discard Match
           </button>
           <button onClick={onResumeMatch} style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}>
@@ -2305,6 +2310,8 @@ export default function KeeperStat() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareData, setShareData] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [savingMatch, setSavingMatch] = useState(false);
+  const savingMatchRef = useRef(false);
 
   // Surfaces a failed save/load that would otherwise only hit the console —
   // auto-dismisses so a stale error doesn't linger once the user's moved on.
@@ -2583,6 +2590,13 @@ export default function KeeperStat() {
   };
   const setMatchNotes = (notes) => setMatch((m) => ({ ...m, notes }));
   const saveMatchToHistory = () => {
+    // A ref (not the savingMatch state) guards re-entry: two rapid clicks are
+    // dispatched synchronously in the same tick, before React re-renders with
+    // the button disabled, so a state check here would still read stale
+    // "false" for both and let a double-tap create a duplicate match.
+    if (savingMatchRef.current) return;
+    savingMatchRef.current = true;
+    setSavingMatch(true);
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
     const [mm] = match.clock.split(":").map(Number);
     const payload = {
@@ -2608,11 +2622,15 @@ export default function KeeperStat() {
         setMatchesByKeeper((mb) => ({ ...mb, [activeKeeperId]: [...(mb[activeKeeperId] || []), record] }));
         setMatch(emptyMatch());
         setMatchStatus("idle");
+        savingMatchRef.current = false;
+        setSavingMatch(false);
         go("report", record.n);
       })
       .catch((err) => {
         console.error("Failed to save match", err);
         showError("Couldn't save this match. Please try again.");
+        savingMatchRef.current = false;
+        setSavingMatch(false);
       });
   };
 
@@ -2715,7 +2733,7 @@ export default function KeeperStat() {
         activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)}
         matchStatus={matchStatus} baseline={baseline}
         onStartMatch={startMatch} onEndMatch={endMatch} onResumeMatch={resumeMatch}
-        onSaveMatch={saveMatchToHistory} onDiscardMatch={discardMatch}
+        onSaveMatch={saveMatchToHistory} savingMatch={savingMatch} onDiscardMatch={discardMatch}
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
       />
