@@ -86,8 +86,16 @@ export function fixtureToJson(row) {
   return {
     id: row.id,
     opponent: row.opponent,
-    // neon-serverless returns DATE columns as JS Date objects; format as YYYY-MM-DD
-    date: row.match_date ? row.match_date.toISOString().slice(0, 10) : null,
+    // @neondatabase/serverless parses a DATE-only column via `new Date(y, m,
+    // d)` — i.e. *local* midnight in whatever timezone this process runs in,
+    // not UTC. Reading it back with the matching local getters reproduces
+    // the original date exactly, regardless of runtime timezone; .toISOString()
+    // instead re-expresses the moment in UTC, silently shifting the date by
+    // a day whenever the runtime's timezone isn't UTC (verified: this is
+    // currently masked only by Vercel defaulting Node's timezone to UTC).
+    date: row.match_date
+      ? `${row.match_date.getFullYear()}-${String(row.match_date.getMonth() + 1).padStart(2, "0")}-${String(row.match_date.getDate()).padStart(2, "0")}`
+      : null,
   };
 }
 
