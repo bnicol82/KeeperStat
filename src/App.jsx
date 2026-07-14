@@ -1987,7 +1987,11 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
                 <div className="settings-row-label">{f.opponent}</div>
                 {f.date && <div className="settings-row-desc">{f.date}</div>}
               </div>
-              <button onClick={() => onDelete(f.id)} aria-label={`Delete ${f.opponent}`} style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}>
+              <button
+                onClick={() => { if (window.confirm(`Remove ${f.opponent} from the schedule?`)) onDelete(f.id); }}
+                aria-label={`Delete ${f.opponent}`}
+                style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}
+              >
                 ✕
               </button>
             </div>
@@ -2083,7 +2087,16 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         <button onClick={save} className="btn3d btn3d-orange" style={{ flex: 1, padding: 10, borderRadius: 10, fontFamily: fontCond, fontWeight: 700, fontSize: 13 }}>
           Save
         </button>
-        <button onClick={() => { onDelete(match.id); setEditing(false); }} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13 }}>
+        <button
+          onClick={() => {
+            if (window.confirm(`Delete this match vs ${match.opp}? This permanently removes its tracked stats. This can't be undone.`)) {
+              onDelete(match.id);
+              setEditing(false);
+            }
+          }}
+          className="btn3d btn3d-outline"
+          style={{ flex: 1, padding: 10, borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13 }}
+        >
           Delete
         </button>
         <button onClick={() => setEditing(false)} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 13 }}>
