@@ -1918,12 +1918,20 @@ const TeamRecord = ({ matches }) => {
 const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   const [text, setText] = useState("");
   const fileInputRef = useRef(null);
+  // Ref guard (see saveMatchToHistory in the root component) — setText("")
+  // doesn't take effect until the next render, so a double-tap fires both
+  // handlers with the same stale `text` and would otherwise import every
+  // pasted row twice.
+  const importingRef = useRef(false);
 
   const importText = () => {
+    if (importingRef.current) return;
     const items = parseScheduleText(text);
     if (items.length) {
+      importingRef.current = true;
       onImport(items);
       setText("");
+      setTimeout(() => { importingRef.current = false; }, 0);
     }
   };
 
