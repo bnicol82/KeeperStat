@@ -1,5 +1,6 @@
 import { sql, withCors } from "./_lib/db.js";
 import { requireUser } from "./_lib/auth.js";
+import { withErrorHandling } from "./_lib/errors.js";
 import { LEVELS, impactScoreFromStats } from "../shared/scoring.js";
 
 const MIN_MATCHES = 3;
@@ -13,7 +14,7 @@ function toDisplayName(name) {
   return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (withCors(req, res)) return;
   // Any signed-in KeeperStat user can view the leaderboard — it isn't
   // scoped to keepers the caller owns, unlike every other /api/keepers
@@ -61,3 +62,5 @@ export default async function handler(req, res) {
   rankings.sort((a, b) => b.avgScore - a.avgScore);
   res.status(200).json(rankings);
 }
+
+export default withErrorHandling(handler);

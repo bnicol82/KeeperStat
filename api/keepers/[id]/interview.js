@@ -2,10 +2,11 @@ import { sql, withCors, interviewResponseToJson, ownsKeeper } from "../../_lib/d
 import { requireUser } from "../../_lib/auth.js";
 import { validString, validInt, badRequest } from "../../_lib/validate.js";
 import { enforceRateLimit, RATE_LIMITS } from "../../_lib/rateLimit.js";
+import { withErrorHandling } from "../../_lib/errors.js";
 
 const VALID_TABS = ["Coach", "Parent", "Keeper"];
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (withCors(req, res)) return;
   const userId = await requireUser(req, res);
   if (!userId) return;
@@ -43,3 +44,5 @@ export default async function handler(req, res) {
 
   res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withErrorHandling(handler);

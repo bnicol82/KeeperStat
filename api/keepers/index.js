@@ -2,11 +2,12 @@ import { sql, withCors, keeperToJson } from "../_lib/db.js";
 import { requireUser } from "../_lib/auth.js";
 import { validString, badRequest } from "../_lib/validate.js";
 import { enforceRateLimit, RATE_LIMITS } from "../_lib/rateLimit.js";
+import { withErrorHandling } from "../_lib/errors.js";
 import { LEVELS } from "../../shared/scoring.js";
 
 const LEVEL_KEYS = Object.keys(LEVELS);
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (withCors(req, res)) return;
   const userId = await requireUser(req, res);
   if (!userId) return;
@@ -37,3 +38,5 @@ export default async function handler(req, res) {
 
   res.status(405).json({ error: "Method not allowed" });
 }
+
+export default withErrorHandling(handler);
