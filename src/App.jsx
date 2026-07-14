@@ -120,16 +120,21 @@ const activeTabFor = (screen) => {
 };
 
 // ---------- tiny UI atoms ----------
+// The Header's left/right slots are always one of this small, fixed set of
+// icon glyphs, so a lookup here covers every screen without threading a
+// label prop through ~20 call sites.
+const HEADER_ICON_LABELS = { "‹": "Back", "☰": "Switch keeper", "⚙": "Settings", "⇪": "Share" };
+
 const Header = ({ title, left, right, onLeft, onRight }) => (
   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px", flexShrink: 0 }}>
-    <button onClick={onLeft} style={{ background: "none", border: "none", color: C.white, fontSize: 22, width: 36, textAlign: "left", cursor: "pointer", padding: 0 }}>
+    <button onClick={onLeft} aria-label={HEADER_ICON_LABELS[left] || title} style={{ background: "none", border: "none", color: C.white, fontSize: 22, width: 36, textAlign: "left", cursor: "pointer", padding: 0 }}>
       {left}
     </button>
     <div style={{ fontFamily: fontCond, fontWeight: 600, fontSize: 20, letterSpacing: 0.3, color: C.white }}>{title}</div>
     {onRight ? (
-      <button onClick={onRight} style={{ background: "none", border: "none", width: 36, textAlign: "right", color: C.white, fontSize: 18, cursor: "pointer", padding: 0 }}>{right || ""}</button>
+      <button onClick={onRight} aria-label={HEADER_ICON_LABELS[right] || title} style={{ background: "none", border: "none", width: 36, textAlign: "right", color: C.white, fontSize: 18, cursor: "pointer", padding: 0 }}>{right || ""}</button>
     ) : (
-      <div style={{ width: 36, textAlign: "right", color: C.white, fontSize: 18 }}>{right || ""}</div>
+      <div style={{ width: 36, textAlign: "right", color: C.white, fontSize: 18 }} aria-hidden="true">{right || ""}</div>
     )}
   </div>
 );
@@ -158,7 +163,7 @@ const MoreSheet = ({ open, onClose, onNav }) => (
       <div className="sheet-handle" />
       <div className="sheet-header">
         <span>More</span>
-        <button className="sheet-close" onClick={onClose}>✕</button>
+        <button className="sheet-close" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {MORE_ITEMS.map((it) => (
         <button key={it.key} className="sheet-row" onClick={() => onNav(it.key)}>
@@ -450,7 +455,7 @@ const ShareSheet = ({ open, onClose, data }) => {
         <div className="sheet-handle" />
         <div className="sheet-header">
           <span>Share Match Report</span>
-          <button className="sheet-close" onClick={onClose}>✕</button>
+          <button className="sheet-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
         {data && (
           <>
@@ -1865,7 +1870,7 @@ const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
       <div className="sheet-handle" />
       <div className="sheet-header">
         <span>Switch Keeper</span>
-        <button className="sheet-close" onClick={onClose}>✕</button>
+        <button className="sheet-close" onClick={onClose} aria-label="Close">✕</button>
       </div>
       {keepers.map((k) => (
         <button key={k.id} className="sheet-row" onClick={() => onSelect(k.id)}>
@@ -1967,7 +1972,7 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
                 <div className="settings-row-label">{f.opponent}</div>
                 {f.date && <div className="settings-row-desc">{f.date}</div>}
               </div>
-              <button onClick={() => onDelete(f.id)} style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}>
+              <button onClick={() => onDelete(f.id)} aria-label={`Delete ${f.opponent}`} style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}>
                 ✕
               </button>
             </div>
@@ -2134,6 +2139,7 @@ const Settings = ({
           <button
             onClick={() => photoInputRef.current?.click()}
             disabled={photoUploading}
+            aria-label="Upload photo"
             style={{ position: "relative", background: "none", border: "none", padding: 0, cursor: "pointer", borderRadius: "50%", opacity: photoUploading ? 0.6 : 1 }}
           >
             <Avatar keeper={activeKeeper} style={{ width: 88, height: 88, fontSize: 32 }} />
