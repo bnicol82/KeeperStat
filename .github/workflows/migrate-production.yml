@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - "db/migrations/**"
+  # Lets migrations already merged before this workflow existed (or any
+  # already-pending migration) be applied on demand from the Actions tab,
+  # without needing a dummy push to db/migrations/ to re-trigger the path
+  # filter above.
+  workflow_dispatch: {}
 
 jobs:
   migrate:
