@@ -1,5 +1,6 @@
 import { upload } from "@vercel/blob/client";
 import { getAuthToken, setCachedAuthToken } from "./authClient.js";
+import { extensionForMimeType } from "./videoRecorder.js";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -48,6 +49,16 @@ export const api = {
     const blob = await upload(`keepers/${keeperId}/${file.name}`, file, {
       access: "public",
       handleUploadUrl: `${BASE_URL}/api/keepers/${keeperId}/photo`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return blob.url;
+  },
+  uploadMatchVideo: async (keeperId, matchId, videoBlob) => {
+    const token = getAuthToken();
+    const ext = extensionForMimeType(videoBlob.type);
+    const blob = await upload(`keepers/${keeperId}/matches/${matchId}/game-film.${ext}`, videoBlob, {
+      access: "public",
+      handleUploadUrl: `${BASE_URL}/api/keepers/${keeperId}/matches/${matchId}/video`,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     return blob.url;
