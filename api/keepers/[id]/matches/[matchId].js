@@ -63,28 +63,64 @@ async function handler(req, res) {
       video_url: p.videoUrl !== undefined ? p.videoUrl : existing.video_url,
     };
 
-    const [row] = await sql`
-      UPDATE matches SET
-        opponent = ${next.opponent},
-        saves = ${next.saves},
-        shots_faced = ${next.shots_faced},
-        goals_against = ${next.goals_against},
-        result = ${next.result},
-        goals_scored = ${next.goals_scored},
-        team_shots_on_goal = ${next.team_shots_on_goal},
-        minutes_played = ${next.minutes_played},
-        distribution_completed = ${next.distribution_completed},
-        distribution_attempted = ${next.distribution_attempted},
-        claims = ${next.claims},
-        punches = ${next.punches},
-        penalty_saves = ${next.penalty_saves},
-        big_saves = ${next.big_saves},
-        errors = ${next.errors},
-        notes = ${next.notes},
-        video_url = ${next.video_url}
-      WHERE id = ${matchId} AND keeper_id = ${id}
-      RETURNING *
-    `;
+    let row;
+    try {
+      [row] = await sql`
+        UPDATE matches SET
+          opponent = ${next.opponent},
+          saves = ${next.saves},
+          shots_faced = ${next.shots_faced},
+          goals_against = ${next.goals_against},
+          result = ${next.result},
+          goals_scored = ${next.goals_scored},
+          team_shots_on_goal = ${next.team_shots_on_goal},
+          minutes_played = ${next.minutes_played},
+          distribution_completed = ${next.distribution_completed},
+          distribution_attempted = ${next.distribution_attempted},
+          claims = ${next.claims},
+          punches = ${next.punches},
+          penalty_saves = ${next.penalty_saves},
+          big_saves = ${next.big_saves},
+          errors = ${next.errors},
+          notes = ${next.notes},
+          video_url = ${next.video_url}
+        WHERE id = ${matchId} AND keeper_id = ${id}
+        RETURNING *
+      `;
+    } catch (err) {
+      // 42703 = undefined_column. Every match edit wrote to video_url
+      // unconditionally, even when the caller never touched it — so a
+      // deploy that outran its own migration (matches.video_url, added
+      // after this route) would fail *every* match edit, not just ones
+      // setting a video link. Retrying once without that column keeps
+      // editing saves/notes/etc. working regardless of migration timing;
+      // the video link itself just won't persist until the column exists.
+      if (err.code === "42703" && /video_url/.test(err.message || "")) {
+        [row] = await sql`
+          UPDATE matches SET
+            opponent = ${next.opponent},
+            saves = ${next.saves},
+            shots_faced = ${next.shots_faced},
+            goals_against = ${next.goals_against},
+            result = ${next.result},
+            goals_scored = ${next.goals_scored},
+            team_shots_on_goal = ${next.team_shots_on_goal},
+            minutes_played = ${next.minutes_played},
+            distribution_completed = ${next.distribution_completed},
+            distribution_attempted = ${next.distribution_attempted},
+            claims = ${next.claims},
+            punches = ${next.punches},
+            penalty_saves = ${next.penalty_saves},
+            big_saves = ${next.big_saves},
+            errors = ${next.errors},
+            notes = ${next.notes}
+          WHERE id = ${matchId} AND keeper_id = ${id}
+          RETURNING *
+        `;
+      } else {
+        throw err;
+      }
+    }
     res.status(200).json(matchToJson(row));
     return;
   }
