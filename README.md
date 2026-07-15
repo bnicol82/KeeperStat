@@ -46,6 +46,7 @@ Demo mode works with no environment variables at all. Real accounts need `DATABA
 - `.github/workflows/ci.yml` runs `npm test` and `npm run build` on every pull request.
 - `.github/workflows/deploy.yml` runs the same gate before deploying `main` to GitHub Pages.
 - `.github/workflows/neon-preview.yml` creates/tears down a Neon branch per PR and runs migrations against it.
+- `.github/workflows/migrate-production.yml` runs `db:migrate` against production on every push to `main` that touches `db/migrations/**`. PR preview branches were already migrated automatically; production wasn't, so a merged migration could sit unapplied with no signal anything was wrong. Requires a `PRODUCTION_DATABASE_URL` repository secret (Settings → Secrets and variables → Actions) — until it's added, the workflow skips with a visible `::warning::` annotation instead of failing.
 
 Note: these give visible pass/fail checks, but don't themselves block a merge on a red check — that requires enabling "require status checks to pass" under the repo's branch protection settings.
 
