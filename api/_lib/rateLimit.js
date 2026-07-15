@@ -28,6 +28,7 @@ async function checkRateLimit(key, { limit, windowSeconds }) {
 export const RATE_LIMITS = {
   write: { limit: 60, windowSeconds: 60 },
   photoUpload: { limit: 10, windowSeconds: 3600 },
+  videoUpload: { limit: 20, windowSeconds: 3600 },
 };
 
 // Call after requireUser succeeds. Returns true if the request may proceed;

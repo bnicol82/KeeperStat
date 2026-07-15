@@ -1,0 +1,9 @@
+# Vercel's zero-config API routing treats every .js file directly under
+# api/ as its own Serverless Function (that's why shared helpers live in
+# api/_lib/ — the underscore prefix is what excludes them). Test files
+# colocated next to their routes (api/keepers/[id].test.js, etc.) aren't
+# excluded by that convention, so without this ignore file they each count
+# against the Hobby plan's 12-function-per-deployment cap. Tests only run
+# via `vitest` in GitHub Actions/locally — they never need to ship to
+# Vercel at all.
+**/*.test.js

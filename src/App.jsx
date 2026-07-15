@@ -3,6 +3,7 @@ import { api, setUnauthorizedHandler } from "./api.js";
 import { authClient, getAuthToken, setCachedAuthToken, getCachedUserEmail, setCachedUserEmail } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
+import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -961,7 +962,7 @@ const SmallActionButton = ({ icon, label, count, color, onClick }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause }) => {
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause, recording, onToggleRecording, recordingError }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1107,6 +1108,21 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
               <span style={{ fontFamily: fontCond, fontSize: 32, fontWeight: 800, letterSpacing: 1, color: clockPaused ? C.gold : C.white }}>{match.clock}</span>
             </div>
           </div>
+          {isRecordingSupported() && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <button
+                onClick={onToggleRecording}
+                className="btn3d btn3d-outline"
+                style={{ padding: "6px 14px", borderRadius: 10, color: recording ? C.red : C.grayDark, fontWeight: 700, fontSize: 12, letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <span style={{ fontSize: 10 }}>{recording ? "⏹" : "⏺"}</span>
+                {recording ? "STOP RECORDING" : "RECORD FILM"}
+              </button>
+            </div>
+          )}
+          {recordingError && (
+            <div style={{ fontSize: 11.5, color: C.red, fontWeight: 600, marginTop: 6, textAlign: "right" }}>{recordingError}</div>
+          )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 26, marginTop: 10 }}>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontFamily: fontCond, fontSize: 52, fontWeight: 800, color: C.orange, lineHeight: 1, textShadow: "0 3px 8px rgba(255,92,0,.35)" }}>{match.ourGoals}</div>
@@ -2386,6 +2402,10 @@ export default function KeeperStat() {
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | live | ended
   const [match, setMatch] = useState(() => emptyMatch());
   const [clockPaused, setClockPaused] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState(null);
+  const matchRecorderRef = useRef(null);
+  const recordedVideoRef = useRef(null);
   const [showGMIS, setShowGMIS] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
@@ -2717,11 +2737,46 @@ export default function KeeperStat() {
     setMatch(emptyMatch(opponent));
     setMatchStatus("live");
     setClockPaused(false);
+    recordedVideoRef.current = null;
+    setRecordingError(null);
   };
   const toggleClockPause = () => setClockPaused((p) => !p);
-  const endMatch = () => setMatchStatus("ended");
+  // Camera/mic access is opt-in per match rather than automatic — most
+  // matches won't want a permission prompt, and the recording (if any) is
+  // stopped the moment the match ends since there's nothing left to film.
+  const toggleRecording = async () => {
+    if (recording) {
+      const blob = await matchRecorderRef.current?.stop();
+      recordedVideoRef.current = blob;
+      setRecording(false);
+      return;
+    }
+    setRecordingError(null);
+    matchRecorderRef.current = new MatchRecorder();
+    try {
+      await matchRecorderRef.current.start();
+      setRecording(true);
+    } catch (err) {
+      console.error("Failed to start recording", err);
+      setRecordingError("Couldn't access the camera/microphone. Check your browser permissions and try again.");
+      matchRecorderRef.current = null;
+    }
+  };
+  const endMatch = async () => {
+    if (recording) {
+      const blob = await matchRecorderRef.current?.stop();
+      recordedVideoRef.current = blob;
+      setRecording(false);
+    }
+    setMatchStatus("ended");
+  };
   const resumeMatch = () => setMatchStatus("live");
   const discardMatch = () => {
+    if (recording) {
+      matchRecorderRef.current?.discard();
+      setRecording(false);
+    }
+    recordedVideoRef.current = null;
     setMatch(emptyMatch());
     setMatchStatus("idle");
   };
@@ -2761,6 +2816,25 @@ export default function KeeperStat() {
         setMatchStatus("idle");
         savingMatchRef.current = false;
         setSavingMatch(false);
+        // Best-effort: the stats already saved successfully above, so a
+        // failed video upload shouldn't look like the whole save failed —
+        // the user can still paste a link into the match's video field later.
+        const recordedVideo = recordedVideoRef.current;
+        recordedVideoRef.current = null;
+        if (recordedVideo) {
+          dataApi.uploadMatchVideo(activeKeeperId, record.id, recordedVideo)
+            .then((videoUrl) => dataApi.updateMatch(activeKeeperId, record.id, { videoUrl }))
+            .then((updated) => {
+              setMatchesByKeeper((mb) => ({
+                ...mb,
+                [activeKeeperId]: (mb[activeKeeperId] || []).map((m) => (m.id === record.id ? updated : m)),
+              }));
+            })
+            .catch((err) => {
+              console.error("Failed to upload match recording", err);
+              showError("Match saved, but the recorded video couldn't be uploaded.");
+            });
+        }
         go("report", record.n);
       })
       .catch((err) => {
@@ -2874,6 +2948,7 @@ export default function KeeperStat() {
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
         clockPaused={clockPaused} onToggleClockPause={toggleClockPause}
+        recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError}
       />
     ),
     stats: <MatchStats match={match} go={go} baseline={baseline} />,

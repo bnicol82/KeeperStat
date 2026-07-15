@@ -104,6 +104,7 @@ export function createDemoApi() {
 
     // No real storage in demo mode — just a local object URL for this tab's session.
     uploadKeeperPhoto: async (keeperId, file) => URL.createObjectURL(file),
+    uploadMatchVideo: async (keeperId, matchId, videoBlob) => URL.createObjectURL(videoBlob),
 
     // KeeperStat Rankings is a cross-account leaderboard — demo mode has no
     // real account, so there's nothing to rank. App.jsx never actually
