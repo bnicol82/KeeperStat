@@ -2456,30 +2456,49 @@ export default function KeeperStat() {
     let cancelled = false;
     setKeepersLoading(true);
     (async () => {
+      let ks;
       try {
-        const ks = await currentApi.listKeepers();
-        if (cancelled) return;
-        setKeepers(ks);
-        if (ks.length) {
-          const firstId = ks[0].id;
-          setActiveKeeperId(firstId);
-          const [ms, fx, iv] = await Promise.all([currentApi.listMatches(firstId), currentApi.listFixtures(firstId), currentApi.listInterviewResponses(firstId)]);
-          if (cancelled) return;
-          setMatchesByKeeper({ [firstId]: ms });
-          setFixturesByKeeper({ [firstId]: fx });
-          setInterviewByKeeper({ [firstId]: iv });
-        } else {
-          setActiveKeeperId(null);
-          setMatchesByKeeper({});
-          setFixturesByKeeper({});
-          setInterviewByKeeper({});
-        }
+        ks = await currentApi.listKeepers();
       } catch (err) {
+        if (cancelled) return;
         console.error("Failed to load keepers", err);
         showError("Couldn't load your keeper profiles. Check your connection and try again.");
-      } finally {
-        if (!cancelled) setKeepersLoading(false);
+        setKeepersLoading(false);
+        return;
       }
+      if (cancelled) return;
+      setKeepers(ks);
+      if (!ks.length) {
+        setActiveKeeperId(null);
+        setMatchesByKeeper({});
+        setFixturesByKeeper({});
+        setInterviewByKeeper({});
+        setKeepersLoading(false);
+        return;
+      }
+      const firstId = ks[0].id;
+      setActiveKeeperId(firstId);
+      // Keepers loaded fine at this point — allSettled (not all) so a
+      // failure in just one of these (e.g. interview responses) doesn't
+      // also blank out matches/fixtures that loaded successfully, and the
+      // error reported is accurate about what actually failed instead of
+      // reusing the "couldn't load keeper profiles" message for something
+      // that has nothing to do with keeper profiles.
+      const [msResult, fxResult, ivResult] = await Promise.allSettled([
+        currentApi.listMatches(firstId),
+        currentApi.listFixtures(firstId),
+        currentApi.listInterviewResponses(firstId),
+      ]);
+      if (cancelled) return;
+      const failedParts = [];
+      if (msResult.status === "fulfilled") setMatchesByKeeper({ [firstId]: msResult.value });
+      else { console.error("Failed to load matches", msResult.reason); failedParts.push("match history"); }
+      if (fxResult.status === "fulfilled") setFixturesByKeeper({ [firstId]: fxResult.value });
+      else { console.error("Failed to load fixtures", fxResult.reason); failedParts.push("schedule"); }
+      if (ivResult.status === "fulfilled") setInterviewByKeeper({ [firstId]: ivResult.value });
+      else { console.error("Failed to load interview responses", ivResult.reason); failedParts.push("interview answers"); }
+      if (failedParts.length) showError(`Couldn't load ${failedParts.join(", ")}. Check your connection and try again.`);
+      setKeepersLoading(false);
     })();
     return () => { cancelled = true; };
   }, [mode]);
