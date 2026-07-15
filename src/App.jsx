@@ -961,7 +961,7 @@ const SmallActionButton = ({ icon, label, count, color, onClick }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures }) => {
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1084,13 +1084,28 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
       <Header title="Live Match Tracker" left="☰" right="⚙" onLeft={onOpenKeeperSwitch} onRight={() => go("settings")} />
       <div style={{ padding: "0 16px", flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
         <Card>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.white, fontWeight: 600 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.white, fontWeight: 600 }}>
             <span>vs {match.opponent}</span>
-            <button onClick={onEndMatch} style={{ background: "none", border: "none", color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: 0 }}>End Match</button>
+            <button
+              onClick={onEndMatch}
+              className="btn3d btn3d-outline"
+              style={{ padding: "9px 18px", borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}
+            >
+              END MATCH
+            </button>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.grayDark, marginTop: 2 }}>
-            <span>{activeKeeper.team}</span>
-            <span style={{ color: C.white, fontWeight: 700 }}>{match.clock}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+            <span style={{ fontSize: 12, color: C.grayDark }}>{activeKeeper.team}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                onClick={onToggleClockPause}
+                aria-label={clockPaused ? "Resume clock" : "Pause clock"}
+                style={{ background: "none", border: "none", color: clockPaused ? C.gold : C.white, fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}
+              >
+                {clockPaused ? "▶" : "⏸"}
+              </button>
+              <span style={{ fontFamily: fontCond, fontSize: 32, fontWeight: 800, letterSpacing: 1, color: clockPaused ? C.gold : C.white }}>{match.clock}</span>
+            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 26, marginTop: 10 }}>
             <div style={{ textAlign: "center" }}>
@@ -2370,6 +2385,7 @@ export default function KeeperStat() {
   const [keeperSheetOpen, setKeeperSheetOpen] = useState(false);
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | live | ended
   const [match, setMatch] = useState(() => emptyMatch());
+  const [clockPaused, setClockPaused] = useState(false);
   const [showGMIS, setShowGMIS] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
@@ -2684,9 +2700,9 @@ export default function KeeperStat() {
     });
   };
 
-  // live clock tick — only while a match is actually in progress
+  // live clock tick — only while a match is actually in progress and not paused
   useEffect(() => {
-    if (matchStatus !== "live") return;
+    if (matchStatus !== "live" || clockPaused) return;
     const id = setInterval(() => {
       setMatch((m) => {
         const [mm, ss] = m.clock.split(":").map(Number);
@@ -2695,12 +2711,14 @@ export default function KeeperStat() {
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [matchStatus]);
+  }, [matchStatus, clockPaused]);
 
   const startMatch = (opponent) => {
     setMatch(emptyMatch(opponent));
     setMatchStatus("live");
+    setClockPaused(false);
   };
+  const toggleClockPause = () => setClockPaused((p) => !p);
   const endMatch = () => setMatchStatus("ended");
   const resumeMatch = () => setMatchStatus("live");
   const discardMatch = () => {
@@ -2855,6 +2873,7 @@ export default function KeeperStat() {
         onSaveMatch={saveMatchToHistory} savingMatch={savingMatch} onDiscardMatch={discardMatch}
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
+        clockPaused={clockPaused} onToggleClockPause={toggleClockPause}
       />
     ),
     stats: <MatchStats match={match} go={go} baseline={baseline} />,
