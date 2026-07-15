@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { api, setUnauthorizedHandler } from "./api.js";
-import { authClient, getAuthToken, setCachedAuthToken } from "./authClient.js";
+import { authClient, getAuthToken, setCachedAuthToken, getCachedUserEmail, setCachedUserEmail } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
@@ -704,6 +704,7 @@ const Login = ({ onAuthenticated, onBack }) => {
       // ask Neon Auth for it again via a cookie-dependent call.
       const token = result?.data?.token ?? result?.data?.session?.token ?? null;
       setCachedAuthToken(token);
+      setCachedUserEmail(result?.data?.user?.email ?? email);
       onAuthenticated();
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
@@ -724,6 +725,7 @@ const Login = ({ onAuthenticated, onBack }) => {
       const token = result?.data?.token ?? result?.data?.session?.token ?? null;
       if (token) {
         setCachedAuthToken(token);
+        setCachedUserEmail(result?.data?.user?.email ?? email);
         onAuthenticated();
       } else {
         setInfo("Email verified — log in to continue.");
@@ -777,7 +779,13 @@ const Login = ({ onAuthenticated, onBack }) => {
   };
 
   const titles = { signin: "Log In", signup: "Create Account", verify: "Verify Your Email", forgot: "Reset Password", reset: "Reset Password" };
-  const canSubmit = email.trim() && password.length >= 8 && !loading;
+  // Sign-up enforces the 8-char minimum client-side (matching what the
+  // server requires for a new password), but sign-in must not — the
+  // server, not a client-side length heuristic, is the only authority on
+  // whether an existing account's actual password is correct. Requiring
+  // 8+ chars to even attempt sign-in would lock out any account whose real
+  // password happens to be shorter for any reason.
+  const canSubmit = email.trim() && (mode === "signup" ? password.length >= 8 : password.length > 0) && !loading;
   const canSubmitVerify = otp.trim().length > 0 && !loading;
   const canSubmitForgot = email.trim() && !loading;
   const canSubmitReset = otp.trim().length > 0 && newPassword.length >= 8 && !loading;
@@ -1055,7 +1063,12 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           >
             {savingMatch ? "SAVING…" : "SAVE TO SEASON"}
           </button>
-          <button onClick={onDiscardMatch} disabled={savingMatch} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}>
+          <button
+            onClick={() => { if (window.confirm("Discard this match? Everything you've tracked so far will be lost. This can't be undone.")) onDiscardMatch(); }}
+            disabled={savingMatch}
+            className="btn3d btn3d-outline"
+            style={{ width: "100%", marginTop: 10, padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14, opacity: savingMatch ? 0.6 : 1 }}
+          >
             Discard Match
           </button>
           <button onClick={onResumeMatch} style={{ width: "100%", background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginTop: 14, cursor: "pointer" }}>
@@ -1099,6 +1112,9 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <BigButton accent="#4A90E2" icon="🎯" lines={"SHOT ON TARGET\n(FACED)"} onClick={() => dispatch({ type: "shot" })} />
           <BigButton accent="#EF5350" icon="🥅" lines={"GOAL\nAGAINST"} onClick={() => dispatch({ type: "goal" })} />
           <BigButton accent={C.orange} icon="⚽" lines={"GOAL\nFOR"} onClick={() => dispatch({ type: "goalFor" })} />
+        </div>
+        <div style={{ fontSize: 11.5, color: C.grayDark, lineHeight: 1.4, marginBottom: 4, padding: "0 2px" }}>
+          Each shot gets exactly one tap: SAVE credits both a save and a shot faced. SHOT ON TARGET is only for a shot faced that wasn't saved (post, deflected out, blocked) — tapping it instead of SAVE will lower Save %.
         </div>
 
         <div style={{ fontSize: 11, fontWeight: 700, color: C.gray, letterSpacing: 1, margin: "6px 0 8px" }}>MORE ACTIONS</div>
@@ -1870,7 +1886,7 @@ const Avatar = ({ keeper, style }) =>
   );
 
 // ---------- keeper switcher sheet ----------
-const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
+const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd, addingKeeper }) => (
   <>
     <div className={`sheet-backdrop ${open ? "open" : ""}`} onClick={onClose} />
     <div className={`sheet ${open ? "open" : ""}`}>
@@ -1889,9 +1905,9 @@ const KeeperSheet = ({ open, onClose, keepers, activeId, onSelect, onAdd }) => (
           {k.id === activeId ? <span style={{ color: C.orange, fontSize: 17, fontWeight: 700 }}>✓</span> : <span className="sheet-row-chev">›</span>}
         </button>
       ))}
-      <button className="sheet-row" onClick={onAdd}>
+      <button className="sheet-row" onClick={onAdd} disabled={addingKeeper} style={{ opacity: addingKeeper ? 0.6 : 1 }}>
         <span className="keeper-avatar" style={{ background: "transparent", border: `1.5px dashed ${C.orange}88`, color: C.orange, boxShadow: "none" }}>+</span>
-        <span className="sheet-row-text"><span className="sheet-row-title" style={{ color: C.orange }}>Add Keeper</span></span>
+        <span className="sheet-row-text"><span className="sheet-row-title" style={{ color: C.orange }}>{addingKeeper ? "Adding…" : "Add Keeper"}</span></span>
       </button>
     </div>
   </>
@@ -1926,6 +1942,7 @@ const TeamRecord = ({ matches }) => {
 
 const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   const [text, setText] = useState("");
+  const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
   // Ref guard (see saveMatchToHistory in the root component) — setText("")
   // doesn't take effect until the next render, so a double-tap fires both
@@ -1933,14 +1950,16 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
   // pasted row twice.
   const importingRef = useRef(false);
 
-  const importText = () => {
+  const importText = async () => {
     if (importingRef.current) return;
     const items = parseScheduleText(text);
     if (items.length) {
       importingRef.current = true;
-      onImport(items);
+      setImporting(true);
       setText("");
-      setTimeout(() => { importingRef.current = false; }, 0);
+      await onImport(items);
+      importingRef.current = false;
+      setImporting(false);
     }
   };
 
@@ -1970,8 +1989,8 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
         style={{ width: "100%", minHeight: 76, padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", resize: "vertical", marginBottom: 10 }}
       />
       <div style={{ display: "flex", gap: 10 }}>
-        <button onClick={importText} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5 }}>
-          Import Pasted Rows
+        <button onClick={importText} disabled={importing} className="btn3d btn3d-orange" style={{ flex: 1, padding: 12, borderRadius: 12, fontFamily: fontCond, fontWeight: 700, fontSize: 14, letterSpacing: 0.5, opacity: importing ? 0.6 : 1 }}>
+          {importing ? "Importing…" : "Import Pasted Rows"}
         </button>
         <button onClick={() => fileInputRef.current?.click()} className="btn3d btn3d-outline" style={{ flex: 1, padding: 12, borderRadius: 12, fontWeight: 700, fontSize: 13 }}>
           Upload CSV
@@ -1987,7 +2006,11 @@ const ScheduleImport = ({ fixtures, onImport, onDelete }) => {
                 <div className="settings-row-label">{f.opponent}</div>
                 {f.date && <div className="settings-row-desc">{f.date}</div>}
               </div>
-              <button onClick={() => onDelete(f.id)} aria-label={`Delete ${f.opponent}`} style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}>
+              <button
+                onClick={() => { if (window.confirm(`Remove ${f.opponent} from the schedule?`)) onDelete(f.id); }}
+                aria-label={`Delete ${f.opponent}`}
+                style={{ background: "none", border: "none", color: C.red, fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 4 }}
+              >
                 ✕
               </button>
             </div>
@@ -2083,7 +2106,16 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         <button onClick={save} className="btn3d btn3d-orange" style={{ flex: 1, padding: 10, borderRadius: 10, fontFamily: fontCond, fontWeight: 700, fontSize: 13 }}>
           Save
         </button>
-        <button onClick={() => { onDelete(match.id); setEditing(false); }} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13 }}>
+        <button
+          onClick={() => {
+            if (window.confirm(`Delete this match vs ${match.opp}? This permanently removes its tracked stats. This can't be undone.`)) {
+              onDelete(match.id);
+              setEditing(false);
+            }
+          }}
+          className="btn3d btn3d-outline"
+          style={{ flex: 1, padding: 10, borderRadius: 10, color: C.red, fontWeight: 700, fontSize: 13 }}
+        >
           Delete
         </button>
         <button onClick={() => setEditing(false)} className="btn3d btn3d-outline" style={{ flex: 1, padding: 10, borderRadius: 10, fontWeight: 700, fontSize: 13 }}>
@@ -2106,11 +2138,16 @@ const MatchHistory = ({ matches, onSave, onDelete }) => (
 );
 
 const Settings = ({
-  go, keepers, activeKeeper, updateActiveKeeper, selectKeeper, addKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
+  go, mode, keepers, activeKeeper, updateActiveKeeper, updateActiveKeeperDebounced, selectKeeper, addKeeper, addingKeeper, onDeleteKeeper, showGMIS, setShowGMIS, notifPrefs, setNotifPrefs,
   matches, onUpdateMatch, onDeleteMatch, fixtures, onImportSchedule, onDeleteFixture, onLogout, onUploadPhoto, onError,
 }) => {
-  const session = authClient.useSession();
-  const accountLabel = session?.data?.user?.email || "Demo Mode — nothing here is saved";
+  // authClient.useSession() reflects Better Auth's own internal session
+  // cache, not the token-based auth this app actually uses (see
+  // authClient.js) — it doesn't reliably reflect a real login, which
+  // previously showed "Demo Mode" here even when signed in. `mode` is the
+  // one thing that's always correct, and the email is cached at sign-in
+  // time specifically so this label doesn't depend on that flaky cache.
+  const accountLabel = mode === "demo" ? "Demo Mode — nothing here is saved" : (getCachedUserEmail() || "Signed in");
   const photoInputRef = useRef(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const handlePhotoChange = async (e) => {
@@ -2155,8 +2192,8 @@ const Settings = ({
           </div>
         ))}
         <div style={{ padding: 14 }}>
-          <button onClick={addKeeper} className="btn3d btn3d-outline" style={{ width: "100%", padding: 12, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 13 }}>
-            + Add Keeper
+          <button onClick={addKeeper} disabled={addingKeeper} className="btn3d btn3d-outline" style={{ width: "100%", padding: 12, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 13, opacity: addingKeeper ? 0.6 : 1 }}>
+            {addingKeeper ? "Adding…" : "+ Add Keeper"}
           </button>
         </div>
       </Card>
@@ -2180,7 +2217,7 @@ const Settings = ({
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Keeper Name</div>
         <input
           value={activeKeeper.name}
-          onChange={(e) => updateActiveKeeper({ name: e.target.value })}
+          onChange={(e) => updateActiveKeeperDebounced({ name: e.target.value })}
           maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
@@ -2188,7 +2225,7 @@ const Settings = ({
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Team</div>
         <input
           value={activeKeeper.team}
-          onChange={(e) => updateActiveKeeper({ team: e.target.value })}
+          onChange={(e) => updateActiveKeeperDebounced({ team: e.target.value })}
           maxLength={200}
           className="input-well"
           style={{ width: "100%", padding: "10px 12px", color: C.white, fontSize: 16, fontFamily: font, outline: "none", marginBottom: 12 }}
@@ -2196,7 +2233,7 @@ const Settings = ({
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Soccer Rankings Profile</div>
         <input
           value={activeKeeper.rankingsUrl || ""}
-          onChange={(e) => updateActiveKeeper({ rankingsUrl: e.target.value })}
+          onChange={(e) => updateActiveKeeperDebounced({ rankingsUrl: e.target.value })}
           placeholder="https://usasportstatistics.net/..."
           maxLength={2000}
           className="input-well"
@@ -2220,7 +2257,7 @@ const Settings = ({
             // The backend requires a title whenever focusArea is non-null, so
             // clearing the title entirely clears the whole focus area instead
             // of sending an invalid half-empty object.
-            updateActiveKeeper({ focusArea: title.trim() ? { title, note: activeKeeper.focusArea?.note || "" } : null });
+            updateActiveKeeperDebounced({ focusArea: title.trim() ? { title, note: activeKeeper.focusArea?.note || "" } : null });
           }}
           placeholder="e.g. Low Diving Saves"
           maxLength={200}
@@ -2230,7 +2267,7 @@ const Settings = ({
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Focus Area Note</div>
         <input
           value={activeKeeper.focusArea?.note || ""}
-          onChange={(e) => updateActiveKeeper({ focusArea: { title: activeKeeper.focusArea.title, note: e.target.value } })}
+          onChange={(e) => updateActiveKeeperDebounced({ focusArea: { title: activeKeeper.focusArea.title, note: e.target.value } })}
           disabled={!activeKeeper.focusArea?.title}
           placeholder={activeKeeper.focusArea?.title ? "e.g. Work on technique and explosiveness" : "Add a title first"}
           maxLength={1000}
@@ -2240,7 +2277,7 @@ const Settings = ({
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Next Goal</div>
         <input
           value={activeKeeper.nextGoal || ""}
-          onChange={(e) => updateActiveKeeper({ nextGoal: e.target.value })}
+          onChange={(e) => updateActiveKeeperDebounced({ nextGoal: e.target.value })}
           placeholder="e.g. Increase distribution accuracy above 80%"
           maxLength={500}
           className="input-well"
@@ -2311,7 +2348,7 @@ const Settings = ({
         <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 10 }}>ACCOUNT</div>
         <div style={{ fontSize: 14, color: "#DADADA", marginBottom: 14 }}>{accountLabel}</div>
         <button onClick={onLogout} className="btn3d btn3d-outline" style={{ width: "100%", padding: 13, borderRadius: 12, color: C.red, fontWeight: 700, fontSize: 14 }}>
-          {session?.data?.user ? "Log Out" : "Exit Demo"}
+          {mode === "demo" ? "Exit Demo" : "Log Out"}
         </button>
       </Card>
     </div>
@@ -2340,7 +2377,10 @@ export default function KeeperStat() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [savingMatch, setSavingMatch] = useState(false);
   const savingMatchRef = useRef(false);
+  const [addingKeeper, setAddingKeeper] = useState(false);
   const addingKeeperRef = useRef(false);
+  const pendingKeeperPatchRef = useRef({});
+  const keeperPatchTimerRef = useRef(null);
 
   // Surfaces a failed save/load that would otherwise only hit the console —
   // auto-dismisses so a stale error doesn't linger once the user's moved on.
@@ -2416,30 +2456,49 @@ export default function KeeperStat() {
     let cancelled = false;
     setKeepersLoading(true);
     (async () => {
+      let ks;
       try {
-        const ks = await currentApi.listKeepers();
-        if (cancelled) return;
-        setKeepers(ks);
-        if (ks.length) {
-          const firstId = ks[0].id;
-          setActiveKeeperId(firstId);
-          const [ms, fx, iv] = await Promise.all([currentApi.listMatches(firstId), currentApi.listFixtures(firstId), currentApi.listInterviewResponses(firstId)]);
-          if (cancelled) return;
-          setMatchesByKeeper({ [firstId]: ms });
-          setFixturesByKeeper({ [firstId]: fx });
-          setInterviewByKeeper({ [firstId]: iv });
-        } else {
-          setActiveKeeperId(null);
-          setMatchesByKeeper({});
-          setFixturesByKeeper({});
-          setInterviewByKeeper({});
-        }
+        ks = await currentApi.listKeepers();
       } catch (err) {
+        if (cancelled) return;
         console.error("Failed to load keepers", err);
         showError("Couldn't load your keeper profiles. Check your connection and try again.");
-      } finally {
-        if (!cancelled) setKeepersLoading(false);
+        setKeepersLoading(false);
+        return;
       }
+      if (cancelled) return;
+      setKeepers(ks);
+      if (!ks.length) {
+        setActiveKeeperId(null);
+        setMatchesByKeeper({});
+        setFixturesByKeeper({});
+        setInterviewByKeeper({});
+        setKeepersLoading(false);
+        return;
+      }
+      const firstId = ks[0].id;
+      setActiveKeeperId(firstId);
+      // Keepers loaded fine at this point — allSettled (not all) so a
+      // failure in just one of these (e.g. interview responses) doesn't
+      // also blank out matches/fixtures that loaded successfully, and the
+      // error reported is accurate about what actually failed instead of
+      // reusing the "couldn't load keeper profiles" message for something
+      // that has nothing to do with keeper profiles.
+      const [msResult, fxResult, ivResult] = await Promise.allSettled([
+        currentApi.listMatches(firstId),
+        currentApi.listFixtures(firstId),
+        currentApi.listInterviewResponses(firstId),
+      ]);
+      if (cancelled) return;
+      const failedParts = [];
+      if (msResult.status === "fulfilled") setMatchesByKeeper({ [firstId]: msResult.value });
+      else { console.error("Failed to load matches", msResult.reason); failedParts.push("match history"); }
+      if (fxResult.status === "fulfilled") setFixturesByKeeper({ [firstId]: fxResult.value });
+      else { console.error("Failed to load fixtures", fxResult.reason); failedParts.push("schedule"); }
+      if (ivResult.status === "fulfilled") setInterviewByKeeper({ [firstId]: ivResult.value });
+      else { console.error("Failed to load interview responses", ivResult.reason); failedParts.push("interview answers"); }
+      if (failedParts.length) showError(`Couldn't load ${failedParts.join(", ")}. Check your connection and try again.`);
+      setKeepersLoading(false);
     })();
     return () => { cancelled = true; };
   }, [mode]);
@@ -2456,6 +2515,7 @@ export default function KeeperStat() {
   const handleLogout = async () => {
     if (mode === "auth") await authClient.signOut().catch(() => {});
     setCachedAuthToken(null);
+    setCachedUserEmail(null);
     demoApiRef.current = null;
     setMode(null);
     setKeepers([]);
@@ -2480,6 +2540,26 @@ export default function KeeperStat() {
       showError("Couldn't save that change. Check your connection and try again.");
     });
   };
+  // Free-text profile fields (name, team, rankings URL, focus area, next
+  // goal) save on every keystroke via onChange — with no debounce, typing a
+  // single name burns through several requests a second and can exhaust the
+  // per-user write rate limit within one edit, surfacing as a spurious
+  // "couldn't save" error despite nothing being wrong. Local state still
+  // updates immediately for a responsive UI; only the network write is
+  // debounced and coalesced across rapid edits into one request.
+  const updateActiveKeeperDebounced = (patch) => {
+    setKeepers((ks) => ks.map((k) => (k.id === activeKeeperId ? { ...k, ...patch } : k)));
+    pendingKeeperPatchRef.current = { ...pendingKeeperPatchRef.current, ...patch };
+    clearTimeout(keeperPatchTimerRef.current);
+    keeperPatchTimerRef.current = setTimeout(() => {
+      const toSave = pendingKeeperPatchRef.current;
+      pendingKeeperPatchRef.current = {};
+      dataApi.updateKeeper(activeKeeperId, toSave).catch((err) => {
+        console.error("Failed to save keeper", err);
+        showError("Couldn't save that change. Check your connection and try again.");
+      });
+    }, 600);
+  };
   const uploadPhoto = async (file) => {
     const photoUrl = await dataApi.uploadKeeperPhoto(activeKeeperId, file);
     updateActiveKeeper({ photoUrl });
@@ -2490,9 +2570,11 @@ export default function KeeperStat() {
     // take effect, which would otherwise create two duplicate profiles.
     if (addingKeeperRef.current) return;
     addingKeeperRef.current = true;
+    setAddingKeeper(true);
     dataApi.createKeeper({ name: "New Keeper", team: "My Team", level: "youth" })
       .then((keeper) => {
         addingKeeperRef.current = false;
+        setAddingKeeper(false);
         setKeepers((ks) => [...ks, keeper]);
         setMatchesByKeeper((mb) => ({ ...mb, [keeper.id]: [] }));
         setFixturesByKeeper((fb) => ({ ...fb, [keeper.id]: [] }));
@@ -2502,6 +2584,7 @@ export default function KeeperStat() {
       })
       .catch((err) => {
         addingKeeperRef.current = false;
+        setAddingKeeper(false);
         console.error("Failed to create keeper", err);
         showError("Couldn't create the new keeper profile. Please try again.");
       });
@@ -2564,7 +2647,7 @@ export default function KeeperStat() {
   };
 
   const importFixtures = (items) => {
-    dataApi.importFixtures(activeKeeperId, items)
+    return dataApi.importFixtures(activeKeeperId, items)
       .then((created) => {
         setFixturesByKeeper((fb) => ({
           ...fb,
@@ -2787,11 +2870,14 @@ export default function KeeperStat() {
     settings: (
       <Settings
         go={go}
+        mode={mode}
         keepers={keepers}
         activeKeeper={activeKeeper}
         updateActiveKeeper={updateActiveKeeper}
+        updateActiveKeeperDebounced={updateActiveKeeperDebounced}
         selectKeeper={selectKeeper}
         addKeeper={addKeeper}
+        addingKeeper={addingKeeper}
         onDeleteKeeper={deleteKeeper}
         showGMIS={showGMIS} setShowGMIS={setShowGMIS}
         notifPrefs={notifPrefs} setNotifPrefs={setNotifPrefs}
@@ -3076,6 +3162,7 @@ export default function KeeperStat() {
             activeId={activeKeeperId}
             onSelect={selectKeeper}
             onAdd={addKeeper}
+            addingKeeper={addingKeeper}
           />
         )}
         {screen !== "welcome" && screen !== "login" && <ShareSheet open={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />}

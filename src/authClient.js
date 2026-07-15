@@ -17,6 +17,7 @@ export const authClient = createAuthClient(import.meta.env.VITE_NEON_AUTH_URL, {
 });
 
 const TOKEN_KEY = "keeperstat.authToken";
+const EMAIL_KEY = "keeperstat.authEmail";
 
 // The session token is handed to us directly in the sign-in/sign-up
 // response body — see Login's submit() — so reading it back out never
@@ -29,4 +30,19 @@ export function getAuthToken() {
 export function setCachedAuthToken(token) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+}
+
+// authClient.useSession() reflects Better Auth's own internal session
+// cache, which is only reliably populated by going through its client for
+// every auth-touching call — a real gap here previously made Settings show
+// "Demo Mode" even for a signed-in user. Caching the email ourselves at
+// sign-in time (same pattern as the token) means the account label never
+// depends on that cache being warm.
+export function getCachedUserEmail() {
+  return localStorage.getItem(EMAIL_KEY);
+}
+
+export function setCachedUserEmail(email) {
+  if (email) localStorage.setItem(EMAIL_KEY, email);
+  else localStorage.removeItem(EMAIL_KEY);
 }
