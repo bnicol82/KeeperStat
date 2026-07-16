@@ -962,7 +962,130 @@ const SmallActionButton = ({ icon, label, count, color, onClick }) => (
   </button>
 );
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause, recording, onToggleRecording, recordingError }) => {
+// Compact enough to sit in a strip over live camera footage — an icon plus a
+// short label, rather than the full-size BigButton/SmallActionButton cards
+// used in the non-recording tracker view.
+const OverlayStatButton = ({ icon, label, accent, onClick }) => (
+  <button
+    onClick={onClick}
+    style={{
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+      padding: "8px 2px", borderRadius: 13, border: `1px solid ${accent}70`,
+      background: "rgba(16,16,16,.72)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+      boxShadow: `0 3px 10px rgba(0,0,0,.45), inset 0 0 14px ${accent}1F`,
+      color: C.white, fontFamily: font, minWidth: 0,
+    }}
+  >
+    <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+    <span style={{ fontFamily: fontCond, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
+  </button>
+);
+
+// Live camera feed as the dominant visual while a match is being filmed, with
+// a thin, semi-transparent control strip pinned to the top and bottom rather
+// than the full tracker layout — the video stays the focus, stat entry stays
+// reachable without a scene change. Secondary/rarer actions (distribution,
+// claims, etc.) are tucked behind a "More" toggle so the resting overlay
+// stays minimal.
+const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPaused, onToggleClockPause, onToggleRecording, onEndMatch }) => {
+  const videoRef = useRef(null);
+  const [showMore, setShowMore] = useState(false);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.srcObject = videoStream || null;
+  }, [videoStream]);
+
+  return (
+    <div style={{ position: "relative", flex: 1, minHeight: 0, background: "#000", overflow: "hidden" }}>
+      <video ref={videoRef} autoPlay muted playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+
+      <div
+        style={{
+          position: "absolute", top: 0, left: 0, right: 0,
+          padding: "calc(10px + env(safe-area-inset-top)) 14px 22px",
+          background: "linear-gradient(to bottom, rgba(0,0,0,.78), transparent)",
+          display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={onToggleClockPause}
+            aria-label={clockPaused ? "Resume clock" : "Pause clock"}
+            style={{ background: "none", border: "none", color: clockPaused ? C.gold : C.white, fontSize: 18, cursor: "pointer", padding: 0, lineHeight: 1 }}
+          >
+            {clockPaused ? "▶" : "⏸"}
+          </button>
+          <span style={{ fontFamily: fontCond, fontSize: 22, fontWeight: 800, color: clockPaused ? C.gold : C.white, textShadow: "0 1px 5px rgba(0,0,0,.7)" }}>
+            {match.clock}
+          </span>
+          <span style={{ fontFamily: fontCond, fontSize: 15, fontWeight: 700, color: C.white, textShadow: "0 1px 5px rgba(0,0,0,.7)" }}>
+            {match.ourGoals}–{match.goalsAgainst}
+          </span>
+        </div>
+        {/* Keeper name in the top-right corner of the overlay, as requested */}
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: fontCond, fontSize: 16, fontWeight: 800, color: C.white, textShadow: "0 1px 5px rgba(0,0,0,.8)", letterSpacing: 0.3 }}>
+            {activeKeeper.name}
+          </div>
+          <div style={{ fontSize: 10.5, color: "rgba(255,255,255,.78)", marginTop: 1, textShadow: "0 1px 4px rgba(0,0,0,.8)" }}>vs {match.opponent}</div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "absolute", bottom: 0, left: 0, right: 0,
+          padding: "16px 10px calc(12px + env(safe-area-inset-bottom))",
+          background: "linear-gradient(to top, rgba(0,0,0,.88), rgba(0,0,0,.4) 65%, transparent)",
+        }}
+      >
+        {showMore && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 8 }}>
+            <OverlayStatButton icon="🎯" label={`Dist ✓ ${match.distributionCompleted}`} accent={C.green} onClick={() => dispatch({ type: "distributionComplete" })} />
+            <OverlayStatButton icon="🚫" label={`Dist ✗ ${match.distributionAttempted - match.distributionCompleted}`} accent={C.gray} onClick={() => dispatch({ type: "distributionMiss" })} />
+            <OverlayStatButton icon="🙌" label={`Claim ${match.claims}`} accent={C.blue} onClick={() => dispatch({ type: "claim" })} />
+            <OverlayStatButton icon="👊" label={`Punch ${match.punches}`} accent={C.blue} onClick={() => dispatch({ type: "punch" })} />
+            <OverlayStatButton icon="🥇" label={`Pen Sv ${match.penaltySaves}`} accent={C.gold} onClick={() => dispatch({ type: "penaltySave" })} />
+            <OverlayStatButton icon="⭐" label={`Big Sv ${match.bigSaves}`} accent={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
+            <OverlayStatButton icon="🎯" label={`Team Shot ${match.teamShotsOnGoal}`} accent={C.orange} onClick={() => dispatch({ type: "teamShotOnGoal" })} />
+            <OverlayStatButton icon="↩" label="Undo" accent={C.gray} onClick={() => dispatch({ type: "undo" })} />
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          <OverlayStatButton icon="🧤" label="SAVE" accent="#4CAF50" onClick={() => dispatch({ type: "save" })} />
+          <OverlayStatButton icon="🎯" label="SHOT" accent="#4A90E2" onClick={() => dispatch({ type: "shot" })} />
+          <OverlayStatButton icon="🥅" label="GOAL AG." accent="#EF5350" onClick={() => dispatch({ type: "goal" })} />
+          <OverlayStatButton icon="⚽" label="GOAL FOR" accent={C.orange} onClick={() => dispatch({ type: "goalFor" })} />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+          <button
+            onClick={() => setShowMore((v) => !v)}
+            style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.22)", color: C.white, borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+          >
+            {showMore ? "Less ⌃" : "More ⌄"}
+          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={onToggleRecording}
+              style={{ background: "rgba(211,47,47,.88)", border: "none", color: "#fff", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+            >
+              ⏹ Stop Filming
+            </button>
+            <button
+              onClick={onEndMatch}
+              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(211,47,47,.65)", color: "#ff8a80", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+            >
+              END
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause, recording, onToggleRecording, recordingError, videoStream }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1077,6 +1200,21 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           </button>
         </div>
       </div>
+    );
+  }
+
+  if (recording && videoStream) {
+    return (
+      <RecordingOverlay
+        videoStream={videoStream}
+        match={match}
+        activeKeeper={activeKeeper}
+        dispatch={dispatch}
+        clockPaused={clockPaused}
+        onToggleClockPause={onToggleClockPause}
+        onToggleRecording={onToggleRecording}
+        onEndMatch={onEndMatch}
+      />
     );
   }
 
@@ -2404,6 +2542,7 @@ export default function KeeperStat() {
   const [clockPaused, setClockPaused] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingError, setRecordingError] = useState(null);
+  const [videoStream, setVideoStream] = useState(null);
   const matchRecorderRef = useRef(null);
   const recordedVideoRef = useRef(null);
   const [showGMIS, setShowGMIS] = useState(true);
@@ -2749,12 +2888,14 @@ export default function KeeperStat() {
       const blob = await matchRecorderRef.current?.stop();
       recordedVideoRef.current = blob;
       setRecording(false);
+      setVideoStream(null);
       return;
     }
     setRecordingError(null);
     matchRecorderRef.current = new MatchRecorder();
     try {
-      await matchRecorderRef.current.start();
+      const stream = await matchRecorderRef.current.start();
+      setVideoStream(stream);
       setRecording(true);
     } catch (err) {
       console.error("Failed to start recording", err);
@@ -2767,6 +2908,7 @@ export default function KeeperStat() {
       const blob = await matchRecorderRef.current?.stop();
       recordedVideoRef.current = blob;
       setRecording(false);
+      setVideoStream(null);
     }
     setMatchStatus("ended");
   };
@@ -2775,6 +2917,7 @@ export default function KeeperStat() {
     if (recording) {
       matchRecorderRef.current?.discard();
       setRecording(false);
+      setVideoStream(null);
     }
     recordedVideoRef.current = null;
     setMatch(emptyMatch());
@@ -2948,7 +3091,7 @@ export default function KeeperStat() {
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
         clockPaused={clockPaused} onToggleClockPause={toggleClockPause}
-        recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError}
+        recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError} videoStream={videoStream}
       />
     ),
     stats: <MatchStats match={match} go={go} baseline={baseline} />,
