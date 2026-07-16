@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { api, setUnauthorizedHandler } from "./api.js";
 import { authClient, getAuthToken, setCachedAuthToken, getCachedUserEmail, setCachedUserEmail } from "./authClient.js";
 import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
+import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -987,13 +988,130 @@ const OverlayStatButton = ({ icon, label, accent, onClick }) => (
 // reachable without a scene change. Secondary/rarer actions (distribution,
 // claims, etc.) are tucked behind a "More" toggle so the resting overlay
 // stays minimal.
-const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPaused, onToggleClockPause, onToggleRecording, onEndMatch }) => {
+const CALIBRATION_STEPS = {
+  keeper: { role: "keeper", prompt: "Tap the keeper to color-code tracking" },
+  team: { role: "team", prompt: "Tap a teammate (optional)" },
+  opponent: { role: "opponent", prompt: "Tap an opponent (optional)" },
+};
+const CALIBRATION_ORDER = ["keeper", "team", "opponent"];
+
+const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dispatch, clockPaused, onToggleClockPause, onToggleRecording, onEndMatch }) => {
   const videoRef = useRef(null);
   const [showMore, setShowMore] = useState(false);
+
+  // Player/ball tracking (TensorFlow.js COCO-SSD). Best-effort: if the model
+  // can't load (slow connection, no WebGL, etc), recording just proceeds
+  // without it — nothing else about the overlay depends on tracking working.
+  const modelRef = useRef(null);
+  const [trackerReady, setTrackerReady] = useState(false);
+  const [trackerError, setTrackerError] = useState(null);
+  const detectionsRef = useRef([]);
+  const detectTimerRef = useRef(null);
+
+  // Jersey-color calibration — one tap each to teach the tracker which color
+  // is the keeper/teammates/opponents, rather than guessing from an
+  // unsupervised color clustering that could confidently mislabel someone.
+  const [calibrationStep, setCalibrationStep] = useState("keeper");
+  const calibrationRefsRef = useRef({ keeper: null, team: null, opponent: null });
+
+  // A single at-a-time "detected" prompt (e.g. ball near the keeper) rather
+  // than silently auto-incrementing stats — the goal is to speed up finding
+  // the right button, not to guess at the real outcome for you.
+  const suggestionRef = useRef(null);
+  const [suggestion, setSuggestionState] = useState(null);
+  const lastSuggestionAtRef = useRef(0);
+  const setSuggestion = (val) => {
+    suggestionRef.current = val;
+    setSuggestionState(val);
+  };
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = videoStream || null;
   }, [videoStream]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadDetector()
+      .then((model) => {
+        if (cancelled) return;
+        modelRef.current = model;
+        setTrackerReady(true);
+      })
+      .catch((err) => {
+        console.error("Failed to load player/ball tracker", err);
+        if (!cancelled) setTrackerError("Player/ball tracking isn't available on this device — recording continues normally.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!trackerReady || !matchRecorder) return;
+    matchRecorder.onFrame = (ctx) => drawDetections(ctx, detectionsRef.current);
+
+    let cancelled = false;
+    const tick = async () => {
+      const canvas = matchRecorder.getCanvas();
+      if (canvas && modelRef.current) {
+        try {
+          const ctx = canvas.getContext("2d");
+          const detections = await detectAndClassify(modelRef.current, canvas, ctx, calibrationRefsRef.current);
+          if (cancelled) return;
+          detectionsRef.current = detections;
+
+          if (!suggestionRef.current && Date.now() - lastSuggestionAtRef.current > 8000) {
+            const ball = detections.find((d) => d.isBall);
+            const keeper = detections.find((d) => d.role === "keeper");
+            if (ball && keeper && boxesNear(ball.bbox, keeper.bbox, 30)) {
+              lastSuggestionAtRef.current = Date.now();
+              setSuggestion({ id: lastSuggestionAtRef.current });
+            }
+          }
+        } catch (err) {
+          console.error("Detection frame failed", err);
+        }
+      }
+      if (!cancelled) detectTimerRef.current = setTimeout(tick, 400);
+    };
+    tick();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(detectTimerRef.current);
+      matchRecorder.onFrame = null;
+    };
+  }, [trackerReady, matchRecorder]);
+
+  // Auto-dismiss a stale suggestion rather than leaving it on screen forever
+  // if the user is mid-play and doesn't get to it.
+  useEffect(() => {
+    if (!suggestion) return;
+    const t = setTimeout(() => setSuggestion(null), 6000);
+    return () => clearTimeout(t);
+  }, [suggestion]);
+
+  const handleVideoTap = (e) => {
+    if (calibrationStep === "done" || !trackerReady || !matchRecorder) return;
+    const canvas = matchRecorder.getCanvas();
+    if (!canvas || !videoRef.current) return;
+    const rect = videoRef.current.getBoundingClientRect();
+    const [cx, cy] = mapTapToCanvasPoint(e.clientX, e.clientY, rect, canvas.width, canvas.height);
+    const color = sampleColorAtPoint(canvas.getContext("2d"), cx, cy);
+    if (color) calibrationRefsRef.current = { ...calibrationRefsRef.current, [calibrationStep]: color };
+    advanceCalibration();
+  };
+  const advanceCalibration = () => {
+    setCalibrationStep((step) => {
+      const idx = CALIBRATION_ORDER.indexOf(step);
+      return CALIBRATION_ORDER[idx + 1] || "done";
+    });
+  };
+
+  const applySuggestion = (type) => {
+    dispatch({ type });
+    setSuggestion(null);
+  };
 
   return (
     // Fixed + inset:0 (rather than relative/flex:1) deliberately breaks out
@@ -1002,7 +1120,12 @@ const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPau
     // landscape, where that 430px cap previously left the video confined to
     // a narrow portrait-shaped column instead of using the full width.
     <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#000", overflow: "hidden" }}>
-      <video ref={videoRef} autoPlay muted playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      <video
+        ref={videoRef}
+        autoPlay muted playsInline
+        onClick={handleVideoTap}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", cursor: calibrationStep !== "done" ? "crosshair" : "default" }}
+      />
 
       <div
         style={{
@@ -1035,6 +1158,49 @@ const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPau
           <div style={{ fontSize: 10.5, color: "rgba(255,255,255,.78)", marginTop: 1, textShadow: "0 1px 4px rgba(0,0,0,.8)" }}>vs {match.opponent}</div>
         </div>
       </div>
+
+      {trackerReady && calibrationStep !== "done" && (
+        <div
+          style={{
+            position: "absolute", top: "calc(64px + env(safe-area-inset-top))", left: "50%", transform: "translateX(-50%)",
+            display: "flex", alignItems: "center", gap: 10, padding: "7px 8px 7px 14px", borderRadius: 20,
+            background: "rgba(0,0,0,.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+            border: `1px solid ${ROLE_COLORS[CALIBRATION_STEPS[calibrationStep].role]}88`, whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ width: 10, height: 10, borderRadius: "50%", background: ROLE_COLORS[CALIBRATION_STEPS[calibrationStep].role], flexShrink: 0 }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: C.white }}>{CALIBRATION_STEPS[calibrationStep].prompt}</span>
+          <button
+            onClick={advanceCalibration}
+            style={{ background: "rgba(255,255,255,.12)", border: "none", color: C.white, borderRadius: 12, padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+          >
+            Skip
+          </button>
+        </div>
+      )}
+      {trackerError && (
+        <div style={{ position: "absolute", top: "calc(64px + env(safe-area-inset-top))", left: 14, right: 14, textAlign: "center", fontSize: 11, color: "rgba(255,255,255,.7)", textShadow: "0 1px 3px rgba(0,0,0,.8)" }}>
+          {trackerError}
+        </div>
+      )}
+
+      {suggestion && (
+        <div
+          style={{
+            position: "absolute", left: 10, right: 10, bottom: showMore ? 210 : 118,
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            padding: "8px 10px", borderRadius: 14, background: "rgba(0,0,0,.72)",
+            backdropFilter: "blur(5px)", WebkitBackdropFilter: "blur(5px)", border: `1px solid ${C.gold}70`,
+          }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.white, flexShrink: 0 }}>⚽ Ball near keeper —</span>
+          <div style={{ display: "flex", gap: 6, flex: 1, justifyContent: "flex-end" }}>
+            <button onClick={() => applySuggestion("save")} style={{ background: "#4CAF5040", border: "1px solid #4CAF50", color: "#fff", borderRadius: 9, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>Save</button>
+            <button onClick={() => applySuggestion("shot")} style={{ background: "#4A90E240", border: "1px solid #4A90E2", color: "#fff", borderRadius: 9, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>Shot</button>
+            <button onClick={() => setSuggestion(null)} style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.25)", color: C.white, borderRadius: 9, padding: "5px 9px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>✕</button>
+          </div>
+        </div>
+      )}
 
       <div
         style={{
@@ -1090,7 +1256,7 @@ const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPau
   );
 };
 
-const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause, recording, onToggleRecording, recordingError, videoStream }) => {
+const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchStatus, onStartMatch, onEndMatch, onResumeMatch, onSaveMatch, savingMatch, onDiscardMatch, onNotesChange, baseline, fixtures, clockPaused, onToggleClockPause, recording, onToggleRecording, recordingError, videoStream, matchRecorder }) => {
   const nextFixture = fixtures?.[0];
   const [opponentInput, setOpponentInput] = useState(() => nextFixture?.opponent || "");
 
@@ -1212,6 +1378,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
     return (
       <RecordingOverlay
         videoStream={videoStream}
+        matchRecorder={matchRecorder}
         match={match}
         activeKeeper={activeKeeper}
         dispatch={dispatch}
@@ -1635,7 +1802,20 @@ const cellBox = (label, value) => (
   </Card>
 );
 
-const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare }) => {
+const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded }) => {
+  const activeMatchN = matches.find((x) => x.n === matchId)?.n ?? matches[matches.length - 1]?.n;
+  const activeMatchIdForClips = matches.find((x) => x.n === activeMatchN)?.id;
+  // Clips live in root state (see App's videosByMatch) rather than local
+  // state fetched here, since a clip recorded just before saving this match
+  // often finishes uploading *after* this screen has already mounted — this
+  // needs to pick that update up when it lands, not just snapshot whatever
+  // existed at mount time.
+  const clips = (activeMatchIdForClips && videosByMatch[activeMatchIdForClips]) || [];
+
+  useEffect(() => {
+    if (activeMatchIdForClips) ensureMatchVideosLoaded(activeMatchIdForClips);
+  }, [activeMatchIdForClips, ensureMatchVideosLoaded]);
+
   if (matches.length === 0) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -1709,6 +1889,25 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
           >
             🎥 Watch Game Film
           </button>
+        )}
+        {clips.length > 0 && (
+          <Card style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>
+              RECORDED FOOTAGE{clips.length > 1 ? ` — ${clips.length} CLIPS` : ""}
+            </div>
+            {/* Each Record Film session (stop, then start again later) is its
+                own clip rather than one recording overwriting the last. */}
+            {clips.map((clip, i) => (
+              <button
+                key={clip.id}
+                onClick={() => window.open(clip.videoUrl, "_blank", "noopener,noreferrer")}
+                className="btn3d btn3d-outline"
+                style={{ width: "100%", marginTop: i ? 8 : 0, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+              >
+                🎥 Watch Clip {i + 1}
+              </button>
+            ))}
+          </Card>
         )}
         {showGMIS && (
           <Card style={{ marginTop: 12 }}>
@@ -2549,7 +2748,12 @@ export default function KeeperStat() {
   const [recordingError, setRecordingError] = useState(null);
   const [videoStream, setVideoStream] = useState(null);
   const matchRecorderRef = useRef(null);
-  const recordedVideoRef = useRef(null);
+  // A match can be filmed across multiple separate Record Film sessions
+  // (stop, keep tracking stats manually for a while, start a new clip
+  // later) — each stop pushes its blob onto this array rather than
+  // overwriting a single slot, which used to silently erase the previous
+  // clip the moment a new recording started.
+  const recordedVideoClipsRef = useRef([]);
   const [showGMIS, setShowGMIS] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
@@ -2587,6 +2791,27 @@ export default function KeeperStat() {
   const [matchesByKeeper, setMatchesByKeeper] = useState({});
   const [fixturesByKeeper, setFixturesByKeeper] = useState({});
   const [interviewByKeeper, setInterviewByKeeper] = useState({});
+  // Recorded-clip lists, keyed by match id. Lives at the root (rather than
+  // as local state fetched inside the report screen) because a clip often
+  // finishes uploading *after* the user has already navigated to the report
+  // — saving stats and then uploading video in the background, rather than
+  // blocking navigation on a possibly-large upload — so whatever shows the
+  // clips needs to react to that update landing later, not just snapshot
+  // whatever existed at mount time.
+  const [videosByMatch, setVideosByMatch] = useState({});
+  // Fetches a match's recorded clips at most once — a matchId already
+  // present in videosByMatch (even as an empty array) is treated as
+  // already loaded or already being populated by the save flow itself, so
+  // this never races an in-flight upload's optimistic update.
+  const ensureMatchVideosLoaded = useCallback((matchId) => {
+    setVideosByMatch((vb) => {
+      if (matchId in vb) return vb;
+      dataApi.listMatchVideos(activeKeeperId, matchId)
+        .then((list) => setVideosByMatch((vb2) => ({ ...vb2, [matchId]: list })))
+        .catch((err) => console.error("Failed to load recorded clips", err));
+      return { ...vb, [matchId]: [] };
+    });
+  }, [dataApi, activeKeeperId]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [rankings, setRankings] = useState([]);
   const [rankingsLoading, setRankingsLoading] = useState(false);
@@ -2881,7 +3106,7 @@ export default function KeeperStat() {
     setMatch(emptyMatch(opponent));
     setMatchStatus("live");
     setClockPaused(false);
-    recordedVideoRef.current = null;
+    recordedVideoClipsRef.current = [];
     setRecordingError(null);
   };
   const toggleClockPause = () => setClockPaused((p) => !p);
@@ -2891,7 +3116,7 @@ export default function KeeperStat() {
   const toggleRecording = async () => {
     if (recording) {
       const blob = await matchRecorderRef.current?.stop();
-      recordedVideoRef.current = blob;
+      if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
       setRecording(false);
       setVideoStream(null);
       return;
@@ -2899,7 +3124,7 @@ export default function KeeperStat() {
     setRecordingError(null);
     matchRecorderRef.current = new MatchRecorder();
     try {
-      const stream = await matchRecorderRef.current.start();
+      const stream = await matchRecorderRef.current.start(activeKeeper.name);
       setVideoStream(stream);
       setRecording(true);
     } catch (err) {
@@ -2911,7 +3136,7 @@ export default function KeeperStat() {
   const endMatch = async () => {
     if (recording) {
       const blob = await matchRecorderRef.current?.stop();
-      recordedVideoRef.current = blob;
+      if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
       setRecording(false);
       setVideoStream(null);
     }
@@ -2924,7 +3149,7 @@ export default function KeeperStat() {
       setRecording(false);
       setVideoStream(null);
     }
-    recordedVideoRef.current = null;
+    recordedVideoClipsRef.current = [];
     setMatch(emptyMatch());
     setMatchStatus("idle");
   };
@@ -2965,23 +3190,38 @@ export default function KeeperStat() {
         savingMatchRef.current = false;
         setSavingMatch(false);
         // Best-effort: the stats already saved successfully above, so a
-        // failed video upload shouldn't look like the whole save failed —
-        // the user can still paste a link into the match's video field later.
-        const recordedVideo = recordedVideoRef.current;
-        recordedVideoRef.current = null;
-        if (recordedVideo) {
-          dataApi.uploadMatchVideo(activeKeeperId, record.id, recordedVideo)
-            .then((videoUrl) => dataApi.updateMatch(activeKeeperId, record.id, { videoUrl }))
-            .then((updated) => {
-              setMatchesByKeeper((mb) => ({
-                ...mb,
-                [activeKeeperId]: (mb[activeKeeperId] || []).map((m) => (m.id === record.id ? updated : m)),
-              }));
-            })
-            .catch((err) => {
-              console.error("Failed to upload match recording", err);
-              showError("Match saved, but the recorded video couldn't be uploaded.");
-            });
+        // failed video upload shouldn't look like the whole save failed.
+        // Every separate Record Film session (stop, then start again later)
+        // uploads and saves as its own clip — one failing doesn't lose or
+        // block the others.
+        const clips = recordedVideoClipsRef.current;
+        recordedVideoClipsRef.current = [];
+        if (clips.length) {
+          // Marks this match as "known" immediately (an empty array, not
+          // undefined) so the report screen's ensureMatchVideosLoaded sees
+          // it's already tracked and doesn't kick off a redundant fetch
+          // that could race these uploads and clobber their results.
+          setVideosByMatch((vb) => ({ ...vb, [record.id]: vb[record.id] || [] }));
+          let failures = 0;
+          Promise.allSettled(
+            clips.map((clip) =>
+              dataApi.uploadMatchVideo(activeKeeperId, record.id, clip)
+                .then((videoUrl) => dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl))
+                .then((videoRecord) => {
+                  setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+                })
+            )
+          ).then((results) => {
+            failures = results.filter((r) => r.status === "rejected").length;
+            if (failures) {
+              results.filter((r) => r.status === "rejected").forEach((r) => console.error("Failed to upload match recording", r.reason));
+              showError(
+                failures === clips.length
+                  ? "Match saved, but the recorded video couldn't be uploaded."
+                  : `Match saved, but ${failures} of ${clips.length} recorded clips couldn't be uploaded.`
+              );
+            }
+          });
         }
         go("report", record.n);
       })
@@ -3096,14 +3336,14 @@ export default function KeeperStat() {
         onNotesChange={setMatchNotes}
         fixtures={fixtures}
         clockPaused={clockPaused} onToggleClockPause={toggleClockPause}
-        recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError} videoStream={videoStream}
+        recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError} videoStream={videoStream} matchRecorder={matchRecorderRef.current}
       />
     ),
     stats: <MatchStats match={match} go={go} baseline={baseline} />,
     dashboard: <Dashboard go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)} />,
     parent: <ParentView go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
-    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} />,
+    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} matches={matches} />,
     interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,

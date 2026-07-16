@@ -13,6 +13,8 @@
   "dependencies": {
     "@neondatabase/auth": "^0.4.2-beta",
     "@neondatabase/serverless": "^0.10.4",
+    "@tensorflow-models/coco-ssd": "^2.2.3",
+    "@tensorflow/tfjs": "^4.22.0",
     "@vercel/blob": "^2.6.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

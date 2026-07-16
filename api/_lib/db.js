@@ -100,6 +100,14 @@ export function fixtureToJson(row) {
   };
 }
 
+export function matchVideoToJson(row) {
+  return {
+    id: row.id,
+    videoUrl: row.video_url,
+    createdAt: row.created_at,
+  };
+}
+
 export function interviewResponseToJson(row) {
   return {
     tab: row.tab,
