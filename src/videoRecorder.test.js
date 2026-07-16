@@ -127,4 +127,21 @@ describe("drawWatermark", () => {
     expect(ctx.calls[0]).toEqual(["save"]);
     expect(ctx.calls[ctx.calls.length - 1]).toEqual(["restore"]);
   });
+
+  it("also draws the keeper's name just above the KeeperStat wordmark when given", () => {
+    const ctx = mockCtx();
+    drawWatermark(ctx, 1280, 720, "Jordan Casey");
+    const strokeTexts = ctx.calls.filter((c) => c[0] === "strokeText").map((c) => c[1]);
+    expect(strokeTexts).toEqual(["KeeperStat", "Jordan Casey"]);
+    const [, brandY] = ctx.calls.find((c) => c[0] === "strokeText" && c[1] === "KeeperStat").slice(2);
+    const [, nameY] = ctx.calls.find((c) => c[0] === "strokeText" && c[1] === "Jordan Casey").slice(2);
+    expect(nameY).toBeLessThan(brandY); // drawn above (smaller y) the brand wordmark
+  });
+
+  it("omits the keeper name line entirely when no name is given", () => {
+    const ctx = mockCtx();
+    drawWatermark(ctx, 1280, 720);
+    const strokeTexts = ctx.calls.filter((c) => c[0] === "strokeText").map((c) => c[1]);
+    expect(strokeTexts).toEqual(["KeeperStat"]);
+  });
 });

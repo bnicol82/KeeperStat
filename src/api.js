@@ -63,4 +63,7 @@ export const api = {
     });
     return blob.url;
   },
+  listMatchVideos: (keeperId, matchId) => request(`/api/keepers/${keeperId}/matches/${matchId}/videos`),
+  addMatchVideo: (keeperId, matchId, videoUrl) =>
+    request(`/api/keepers/${keeperId}/matches/${matchId}/videos`, { method: "POST", body: JSON.stringify({ videoUrl }) }),
 };

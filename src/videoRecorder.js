@@ -23,23 +23,35 @@ export function extensionForMimeType(mimeType) {
   return mimeType?.startsWith("video/mp4") ? "mp4" : "webm";
 }
 
-// Draws a small "KeeperStat" wordmark in the bottom-right corner of a video
-// frame already painted onto the canvas. Font size scales with the frame so
-// it reads consistently whether the source is a phone's portrait or
-// landscape camera resolution.
-export function drawWatermark(ctx, width, height) {
+function drawOutlinedText(ctx, text, x, y, fontSize, fillStyle) {
+  ctx.font = `700 ${fontSize}px 'Barlow Condensed', Arial, sans-serif`;
+  ctx.lineWidth = Math.max(2, fontSize * 0.14);
+  ctx.strokeStyle = "rgba(0,0,0,.55)";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = fillStyle;
+  ctx.fillText(text, x, y);
+}
+
+// Draws a small "KeeperStat" wordmark (plus the keeper's name just above
+// it, if given) in the bottom-right corner of a video frame already painted
+// onto the canvas. Font size scales with the frame so it reads consistently
+// whether the source is a phone's portrait or landscape camera resolution.
+export function drawWatermark(ctx, width, height, keeperName) {
   const fontSize = Math.max(14, Math.round(width * 0.026));
   const padding = Math.round(fontSize * 0.7);
   ctx.save();
-  ctx.font = `700 ${fontSize}px 'Barlow Condensed', Arial, sans-serif`;
   ctx.textAlign = "right";
   ctx.textBaseline = "bottom";
   ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(2, fontSize * 0.14);
-  ctx.strokeStyle = "rgba(0,0,0,.55)";
-  ctx.strokeText("KeeperStat", width - padding, height - padding);
-  ctx.fillStyle = "rgba(255,255,255,.92)";
-  ctx.fillText("KeeperStat", width - padding, height - padding);
+
+  const brandY = height - padding;
+  drawOutlinedText(ctx, "KeeperStat", width - padding, brandY, fontSize, "rgba(255,255,255,.92)");
+
+  if (keeperName) {
+    const nameFontSize = Math.max(11, Math.round(fontSize * 0.72));
+    const nameY = brandY - fontSize * 1.15;
+    drawOutlinedText(ctx, keeperName, width - padding, nameY, nameFontSize, "rgba(255,255,255,.85)");
+  }
   ctx.restore();
 }
 
@@ -66,9 +78,23 @@ export class MatchRecorder {
     this._sourceVideo = null;
     this._canvas = null;
     this._drawTimer = null;
+    // Optional hook invoked as (ctx, width, height, sourceVideoEl) after the
+    // camera frame + watermark are drawn each tick, before the canvas's
+    // stream is captured — lets a caller (the player/ball tracking overlay)
+    // composite extra drawing onto the exact same frame that gets both
+    // displayed and recorded, without this module knowing anything about
+    // tracking itself.
+    this.onFrame = null;
   }
 
-  async start() {
+  // The live compositing canvas, once recording has started — the same
+  // frame source used for color-sampling jersey colors during tracking
+  // calibration, so classification stays aligned with what's on screen.
+  getCanvas() {
+    return this._canvas;
+  }
+
+  async start(keeperName) {
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
       audio: true,
@@ -90,7 +116,8 @@ export class MatchRecorder {
 
     this._drawTimer = setInterval(() => {
       ctx.drawImage(sourceVideo, 0, 0, canvas.width, canvas.height);
-      drawWatermark(ctx, canvas.width, canvas.height);
+      drawWatermark(ctx, canvas.width, canvas.height, keeperName);
+      this.onFrame?.(ctx, canvas.width, canvas.height, sourceVideo);
     }, 1000 / 30);
 
     const canvasStream = canvas.captureStream(30);
@@ -144,6 +171,7 @@ export class MatchRecorder {
     this._sourceVideo?.pause();
     this._sourceVideo = null;
     this._canvas = null;
+    this.onFrame = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
   }

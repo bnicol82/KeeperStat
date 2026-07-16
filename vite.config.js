@@ -25,7 +25,15 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          return id.includes("node_modules") ? "vendor" : undefined;
+          if (!id.includes("node_modules")) return undefined;
+          // @tensorflow/* is only ever reached via the dynamic import() in
+          // playerTracker.js's loadDetector(), which only runs once a match
+          // is actually being filmed — forcing it into the eager "vendor"
+          // chunk would make every visitor download several MB of ML model
+          // code they may never use. Leaving it out lets Rollup keep it as
+          // its own chunk that only loads on that dynamic import.
+          if (id.includes("node_modules/@tensorflow")) return undefined;
+          return "vendor";
         },
       },
     },

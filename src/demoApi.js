@@ -43,6 +43,7 @@ export function createDemoApi() {
   };
   let fixturesByKeeper = { [keeperId]: [] };
   let interviewByKeeper = { [keeperId]: [] };
+  let videosByMatch = {};
 
   return {
     listKeepers: async () => keepers,
@@ -105,6 +106,13 @@ export function createDemoApi() {
     // No real storage in demo mode — just a local object URL for this tab's session.
     uploadKeeperPhoto: async (keeperId, file) => URL.createObjectURL(file),
     uploadMatchVideo: async (keeperId, matchId, videoBlob) => URL.createObjectURL(videoBlob),
+
+    listMatchVideos: async (keeperId, matchId) => videosByMatch[matchId] || [],
+    addMatchVideo: async (keeperId, matchId, videoUrl) => {
+      const record = { id: uid(), videoUrl, createdAt: new Date().toISOString() };
+      videosByMatch[matchId] = [...(videosByMatch[matchId] || []), record];
+      return record;
+    },
 
     // KeeperStat Rankings is a cross-account leaderboard — demo mode has no
     // real account, so there's nothing to rank. App.jsx never actually
