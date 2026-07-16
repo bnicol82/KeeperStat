@@ -971,12 +971,12 @@ const OverlayStatButton = ({ icon, label, accent, onClick }) => (
     style={{
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
       padding: "8px 2px", borderRadius: 13, border: `1px solid ${accent}70`,
-      background: "rgba(16,16,16,.72)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
-      boxShadow: `0 3px 10px rgba(0,0,0,.45), inset 0 0 14px ${accent}1F`,
-      color: C.white, fontFamily: font, minWidth: 0,
+      background: "rgba(16,16,16,.38)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+      boxShadow: `0 3px 10px rgba(0,0,0,.35), inset 0 0 14px ${accent}1F`,
+      color: C.white, fontFamily: font, minWidth: 0, textShadow: "0 1px 3px rgba(0,0,0,.8)",
     }}
   >
-    <span style={{ fontSize: 18, lineHeight: 1 }}>{icon}</span>
+    <span style={{ fontSize: 18, lineHeight: 1, filter: "drop-shadow(0 1px 3px rgba(0,0,0,.8))" }}>{icon}</span>
     <span style={{ fontFamily: fontCond, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{label}</span>
   </button>
 );
@@ -996,7 +996,12 @@ const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPau
   }, [videoStream]);
 
   return (
-    <div style={{ position: "relative", flex: 1, minHeight: 0, background: "#000", overflow: "hidden" }}>
+    // Fixed + inset:0 (rather than relative/flex:1) deliberately breaks out
+    // of the app's normal maxWidth:430 "phone frame" wrapper so the camera
+    // feed fills the real device viewport edge-to-edge — including in
+    // landscape, where that 430px cap previously left the video confined to
+    // a narrow portrait-shaped column instead of using the full width.
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#000", overflow: "hidden" }}>
       <video ref={videoRef} autoPlay muted playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
 
       <div
@@ -1061,20 +1066,20 @@ const RecordingOverlay = ({ videoStream, match, activeKeeper, dispatch, clockPau
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
           <button
             onClick={() => setShowMore((v) => !v)}
-            style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.22)", color: C.white, borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+            style={{ background: "rgba(255,255,255,.06)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", border: "1px solid rgba(255,255,255,.18)", color: C.white, borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", textShadow: "0 1px 3px rgba(0,0,0,.8)" }}
           >
             {showMore ? "Less ⌃" : "More ⌄"}
           </button>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={onToggleRecording}
-              style={{ background: "rgba(211,47,47,.88)", border: "none", color: "#fff", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+              style={{ background: "rgba(211,47,47,.5)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", border: "1px solid rgba(211,47,47,.7)", color: "#fff", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", textShadow: "0 1px 3px rgba(0,0,0,.8)" }}
             >
               ⏹ Stop Filming
             </button>
             <button
               onClick={onEndMatch}
-              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(211,47,47,.65)", color: "#ff8a80", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+              style={{ background: "rgba(255,255,255,.06)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", border: "1px solid rgba(211,47,47,.55)", color: "#ff8a80", borderRadius: 10, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", textShadow: "0 1px 3px rgba(0,0,0,.8)" }}
             >
               END
             </button>
