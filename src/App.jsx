@@ -5,7 +5,7 @@ import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
-import { extractHighlightWindows, buildReel, concatVideos } from "./highlightReel.js";
+import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback } from "./highlightReel.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -1989,10 +1989,12 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
 // than persisted server-side: per-match reels are short, so rebuilding is
 // cheap, and a season reel doesn't belong to any single match row.
 const SeasonHighlights = ({ go, matches, videosByMatch, ensureMatchVideosLoaded, activeKeeper }) => {
+  const [phase, setPhase] = useState("idle"); // idle | downloading | ready | stitching
   const [progress, setProgress] = useState(null); // null | 0..1
   const [resultUrl, setResultUrl] = useState(null);
   const [error, setError] = useState(null);
-  const buildingRef = useRef(false);
+  const readyBlobsRef = useRef(null);
+  const busyRef = useRef(false);
 
   useEffect(() => {
     for (const m of matches) ensureMatchVideosLoaded(m.id);
@@ -2006,27 +2008,57 @@ const SeasonHighlights = ({ go, matches, videosByMatch, ensureMatchVideosLoaded,
     .map((m) => ({ match: m, reel: (videosByMatch[m.id] || []).find((v) => v.kind === "highlights") }))
     .filter((r) => r.reel);
 
-  const buildSeasonReel = async () => {
-    if (buildingRef.current) return;
-    buildingRef.current = true;
+  // Two taps by necessity, not choice: downloading the reels is async, but
+  // iOS only unlocks audio (AudioContext start + unmuted playback) for work
+  // primed SYNCHRONOUSLY inside a tap. So tap 1 downloads; tap 2 primes the
+  // just-downloaded blobs in its own gesture and stitches with sound.
+  const downloadReels = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setResultUrl(null);
-    setProgress(0);
+    setPhase("downloading");
     try {
       const blobs = await Promise.all(reels.map((r) => fetch(r.reel.videoUrl).then((res) => {
         if (!res.ok) throw new Error(`Fetching a reel failed: ${res.status}`);
         return res.blob();
       })));
-      const seasonBlob = await concatVideos(blobs, { onProgress: setProgress });
-      if (!seasonBlob) throw new Error("No footage produced");
-      setResultUrl(URL.createObjectURL(seasonBlob));
+      readyBlobsRef.current = blobs;
+      setPhase("ready");
     } catch (err) {
-      console.error("Failed to build season reel", err);
-      setError("Couldn't build the season reel. Check your connection and try again.");
+      console.error("Failed to download season reels", err);
+      setError("Couldn't download the match reels. Check your connection and try again.");
+      setPhase("idle");
     } finally {
-      buildingRef.current = false;
-      setProgress(null);
+      busyRef.current = false;
     }
+  };
+
+  const stitchReels = () => {
+    if (busyRef.current || !readyBlobsRef.current) return;
+    busyRef.current = true;
+    const blobs = readyBlobsRef.current;
+    // Synchronous, inside this tap — see comment above.
+    const primed = primeReelPlayback(blobs);
+    setError(null);
+    setPhase("stitching");
+    setProgress(0);
+    (async () => {
+      try {
+        const seasonBlob = await concatVideos(blobs, { onProgress: setProgress, primed });
+        if (!seasonBlob) throw new Error("No footage produced");
+        setResultUrl(URL.createObjectURL(seasonBlob));
+        readyBlobsRef.current = null;
+        setPhase("idle");
+      } catch (err) {
+        console.error("Failed to build season reel", err);
+        setError("Couldn't build the season reel. Please try again.");
+        setPhase("ready");
+      } finally {
+        busyRef.current = false;
+        setProgress(null);
+      }
+    })();
   };
 
   return (
@@ -2059,7 +2091,12 @@ const SeasonHighlights = ({ go, matches, videosByMatch, ensureMatchVideosLoaded,
                 </button>
               ))}
             </Card>
-            {progress !== null ? (
+            {phase === "downloading" && (
+              <Card style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600 }}>⬇ Downloading match reels…</div>
+              </Card>
+            )}
+            {phase === "stitching" && progress !== null && (
               <Card style={{ marginTop: 12 }}>
                 <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600, marginBottom: 6 }}>
                   🎬 Building season reel… {Math.round(progress * 100)}%
@@ -2071,14 +2108,32 @@ const SeasonHighlights = ({ go, matches, videosByMatch, ensureMatchVideosLoaded,
                   The reel is assembled by replaying each match's highlights, so this takes about as long as the finished video runs. Keep this tab open.
                 </div>
               </Card>
-            ) : (
+            )}
+            {phase === "idle" && (
               <button
-                onClick={buildSeasonReel}
+                onClick={downloadReels}
                 className="btn3d btn3d-orange"
                 style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}
               >
                 🎬 BUILD SEASON REEL
               </button>
+            )}
+            {phase === "ready" && (
+              <>
+                {/* Second tap on purpose: iOS only allows audio for playback
+                    primed directly inside a tap, and the download that just
+                    finished happened outside one. */}
+                <button
+                  onClick={stitchReels}
+                  className="btn3d btn3d-orange"
+                  style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}
+                >
+                  ▶ START STITCHING
+                </button>
+                <div style={{ fontSize: 11.5, color: C.grayDark, marginTop: 8, textAlign: "center" }}>
+                  Reels downloaded — tap to stitch them into one video (with sound).
+                </div>
+              </>
             )}
             {error && <div style={{ fontSize: 12.5, color: C.red, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
             {resultUrl && (
@@ -3379,6 +3434,16 @@ export default function KeeperStat() {
     if (savingMatchRef.current) return;
     savingMatchRef.current = true;
     setSavingMatch(true);
+    // Runs SYNCHRONOUSLY inside the Save tap, before any await: iOS only
+    // lets an AudioContext start and unmuted programmatic playback happen
+    // for elements activated during a real user gesture. Priming here is
+    // what gives the highlight reel sound on iPhones — without it the
+    // build falls back to a silent reel.
+    const clipsAtSave = recordedVideoClipsRef.current;
+    const highlightWindowsAtSave = extractHighlightWindows(match.log);
+    const primed = Object.keys(highlightWindowsAtSave).some((k) => clipsAtSave[k])
+      ? primeReelPlayback(clipsAtSave)
+      : null;
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
     const [mm] = match.clock.split(":").map(Number);
     const payload = {
@@ -3411,7 +3476,7 @@ export default function KeeperStat() {
         // Every separate Record Film session (stop, then start again later)
         // uploads and saves as its own clip — one failing doesn't lose or
         // block the others.
-        const clips = recordedVideoClipsRef.current;
+        const clips = clipsAtSave;
         recordedVideoClipsRef.current = [];
         if (clips.length) {
           // LOCAL WORK FIRST, NETWORK SECOND. The reel build is entirely
@@ -3425,13 +3490,13 @@ export default function KeeperStat() {
           // but each one is bounded by an abort timeout so a stall becomes
           // a counted failure instead of an invisible, indefinite hang.
           (async () => {
-            const highlightWindows = extractHighlightWindows(match.log);
             let reelBlob = null;
-            if (Object.keys(highlightWindows).some((k) => clips[k])) {
+            if (primed) {
               setReelProgress((rp) => ({ ...rp, [record.id]: 0 }));
               try {
-                reelBlob = await buildReel(clips, highlightWindows, {
+                reelBlob = await buildReel(clips, highlightWindowsAtSave, {
                   onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
+                  primed,
                 });
               } catch (err) {
                 console.error("Failed to build highlight reel", err);
@@ -3490,6 +3555,17 @@ export default function KeeperStat() {
         showError("Couldn't save this match. Please try again.");
         savingMatchRef.current = false;
         setSavingMatch(false);
+        // The reel never gets built on this path, so release the
+        // gesture-primed audio context and clip elements it would have
+        // consumed (the clips themselves stay in the ref for retry).
+        if (primed) {
+          primed.audioCtx?.close().catch(() => {});
+          for (const clip of primed.clips) {
+            clip.video.pause();
+            clip.video.src = "";
+            URL.revokeObjectURL(clip.url);
+          }
+        }
       });
   };
 
