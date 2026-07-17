@@ -1,14 +1,12 @@
 name: Migrate Production Database
 
+# Manual fallback only. Production migrations run automatically inside
+# Vercel's build (see vercel.json's buildCommand), using the DATABASE_URL
+# the Neon integration injects there — no separately-maintained secret in
+# the critical path. This workflow exists for the rare case of needing to
+# migrate without deploying, and requires the PRODUCTION_DATABASE_URL
+# repository secret (Settings > Secrets and variables > Actions).
 on:
-  push:
-    branches: [main]
-    paths:
-      - "db/migrations/**"
-  # Lets migrations already merged before this workflow existed (or any
-  # already-pending migration) be applied on demand from the Actions tab,
-  # without needing a dummy push to db/migrations/ to re-trigger the path
-  # filter above.
   workflow_dispatch: {}
 
 jobs:
@@ -22,28 +20,36 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # PR preview branches get migrated automatically (neon-preview.yml), but
-      # nothing did the same for production — a merged migration could sit
-      # unapplied indefinitely with no signal that anything was wrong. This
-      # closes that gap, but only once PRODUCTION_DATABASE_URL is added under
-      # Settings > Secrets and variables > Actions; until then it skips with
-      # a visible warning instead of failing on every migration-touching push.
-      - name: Check for PRODUCTION_DATABASE_URL secret
-        id: check_secret
+      # Fails loudly and legibly when the secret is missing or malformed,
+      # instead of surfacing later as a cryptic DNS error from pg (a
+      # corrupted paste of this secret once produced `getaddrinfo EAI_AGAIN
+      # base`, which took real effort to trace back here). Prints only safe
+      # diagnostics: length and parsed hostname — never credentials.
+      - name: Validate PRODUCTION_DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
-          if [ -z "${{ secrets.PRODUCTION_DATABASE_URL }}" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::PRODUCTION_DATABASE_URL secret is not set. Add it under Settings > Secrets and variables > Actions."
+            exit 1
           fi
+          node -e '
+            const url = process.env.DATABASE_URL;
+            if (!/^postgres(ql)?:\/\//.test(url)) {
+              console.error(`::error::PRODUCTION_DATABASE_URL does not start with postgres:// or postgresql:// (length ${url.length}). Re-copy the full connection string from Vercel or Neon.`);
+              process.exit(1);
+            }
+            try {
+              const parsed = new URL(url);
+              console.log(`Secret looks like a connection string (length ${url.length}, host ${parsed.hostname}).`);
+            } catch {
+              console.error(`::error::PRODUCTION_DATABASE_URL is not a parseable URL (length ${url.length}). Re-copy the full connection string from Vercel or Neon.`);
+              process.exit(1);
+            }
+          '
 
       - name: Run migrations against production
-        if: steps.check_secret.outputs.skip == 'false'
         run: npm run db:migrate
         env:
           # pooled connection; do not log this value, it contains DB credentials
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-
-      - name: Migration skipped — secret not configured
-        if: steps.check_secret.outputs.skip == 'true'
-        run: echo "::warning::PRODUCTION_DATABASE_URL secret not set — skipped automatic production migration for this push. Add it under Settings > Secrets and variables > Actions to enable this."

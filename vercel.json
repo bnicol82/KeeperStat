@@ -1,0 +1,4 @@
+{
+  "$comment": "Migrations run inside Vercel's build using the DATABASE_URL the Neon integration already injects — the Vercel↔Neon integration itself never executes SQL, and the GitHub Actions path needs a separately-maintained secret that has proven error-prone. db/migrate.js is idempotent (tracks applied files in _migrations), so running on every build is safe; a failing migration fails the build, so a deploy can never outrun its schema. The guard keeps builds working when no DATABASE_URL is present.",
+  "buildCommand": "if [ -n \"$DATABASE_URL\" ]; then npm run db:migrate; fi && npm run build"
+}
