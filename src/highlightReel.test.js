@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { extractHighlightWindows } from "./highlightReel.js";
+import { extractHighlightWindows, isWebKitPlayback } from "./highlightReel.js";
+
+describe("isWebKitPlayback", () => {
+  it("detects iOS devices regardless of browser (all iOS browsers are WebKit)", () => {
+    expect(isWebKitPlayback("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")).toBe(true);
+    expect(isWebKitPlayback("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.0.0 Mobile/15E148 Safari/604.1")).toBe(true); // Chrome on iOS
+    expect(isWebKitPlayback("Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")).toBe(true);
+  });
+
+  it("detects desktop Safari but not Chromium-family browsers", () => {
+    expect(isWebKitPlayback("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15")).toBe(true);
+    expect(isWebKitPlayback("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).toBe(false);
+    expect(isWebKitPlayback("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0")).toBe(false);
+    expect(isWebKitPlayback("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")).toBe(false);
+  });
+});
 
 describe("extractHighlightWindows", () => {
   it("builds a window around each big/penalty save, keyed by clip", () => {
