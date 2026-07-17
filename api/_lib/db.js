@@ -104,6 +104,7 @@ export function matchVideoToJson(row) {
   return {
     id: row.id,
     videoUrl: row.video_url,
+    kind: row.kind,
     createdAt: row.created_at,
   };
 }

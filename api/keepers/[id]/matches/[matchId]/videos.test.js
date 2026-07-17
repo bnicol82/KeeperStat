@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../../../_lib/db.js", () => ({
   sql: vi.fn(),
   withCors: vi.fn(() => false),
-  matchVideoToJson: vi.fn((row) => ({ id: row.id, videoUrl: row.video_url, createdAt: row.created_at })),
+  matchVideoToJson: vi.fn((row) => ({ id: row.id, videoUrl: row.video_url, kind: row.kind, createdAt: row.created_at })),
   ownsKeeper: vi.fn(async () => true),
 }));
 vi.mock("../../../../_lib/auth.js", () => ({ requireUser: vi.fn(async () => "user-1") }));
@@ -73,6 +73,34 @@ describe("POST /api/keepers/:id/matches/:matchId/videos", () => {
     await handler(req, res);
     expect(res.statusCode).toBe(400);
     expect(sql).not.toHaveBeenCalled();
+  });
+
+  it("accepts kind 'highlights' and passes it through to the insert", async () => {
+    let capturedKind;
+    sql.mockImplementation(async (strings, ...values) => {
+      capturedKind = values[2]; // (match_id, video_url, kind)
+      return [{ id: "v4", video_url: "https://blob/reel.webm", kind: "highlights", created_at: "2026-07-01T00:30:00Z" }];
+    });
+    const { req, res } = mockReqRes("POST", { videoUrl: "https://blob/reel.webm", kind: "highlights" });
+    await handler(req, res);
+    expect(res.statusCode).toBe(201);
+    expect(capturedKind).toBe("highlights");
+    expect(res.body.kind).toBe("highlights");
+  });
+
+  it("defaults kind to 'clip' when omitted, and rejects an unknown kind", async () => {
+    let capturedKind;
+    sql.mockImplementation(async (strings, ...values) => {
+      capturedKind = values[2];
+      return [{ id: "v5", video_url: "https://blob/c.webm", kind: "clip", created_at: "2026-07-01T00:40:00Z" }];
+    });
+    const { req, res } = mockReqRes("POST", { videoUrl: "https://blob/c.webm" });
+    await handler(req, res);
+    expect(capturedKind).toBe("clip");
+
+    const { req: badReq, res: badRes } = mockReqRes("POST", { videoUrl: "https://blob/c.webm", kind: "director-cut" });
+    await handler(badReq, badRes);
+    expect(badRes.statusCode).toBe(400);
   });
 
   it("is blocked by the rate limiter before the insert runs", async () => {

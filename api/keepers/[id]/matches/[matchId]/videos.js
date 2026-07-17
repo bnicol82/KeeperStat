@@ -27,12 +27,15 @@ async function handler(req, res) {
 
   if (req.method === "POST") {
     if (!(await enforceRateLimit(res, `write:${userId}`, RATE_LIMITS.write))) return;
-    const { videoUrl } = req.body ?? {};
+    const { videoUrl, kind } = req.body ?? {};
     if (!validString(videoUrl, { required: true, maxLength: 2000 })) {
       return badRequest(res, "videoUrl is required (string, max 2000 chars)");
     }
+    if (kind !== undefined && kind !== "clip" && kind !== "highlights") {
+      return badRequest(res, "kind must be 'clip' or 'highlights'");
+    }
     const [row] = await sql`
-      INSERT INTO match_videos (match_id, video_url) VALUES (${matchId}, ${videoUrl}) RETURNING *
+      INSERT INTO match_videos (match_id, video_url, kind) VALUES (${matchId}, ${videoUrl}, ${kind ?? "clip"}) RETURNING *
     `;
     res.status(201).json(matchVideoToJson(row));
     return;
