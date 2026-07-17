@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { withCors, keeperToJson, matchToJson, fixtureToJson, interviewResponseToJson } from "./db.js";
+import { withCors, keeperToJson, matchToJson, fixtureToJson, interviewResponseToJson, matchVideoToJson } from "./db.js";
 
 function mockReqRes(origin, method = "GET") {
   const headers = {};
@@ -122,6 +122,12 @@ describe("row-to-JSON mappers", () => {
   it("interviewResponseToJson maps snake_case DB columns to camelCase", () => {
     expect(interviewResponseToJson({ tab: "Coach", question_index: 2, answer: "Because" })).toEqual({
       tab: "Coach", questionIndex: 2, answer: "Because",
+    });
+  });
+
+  it("matchVideoToJson includes the clip-vs-highlights kind", () => {
+    expect(matchVideoToJson({ id: "v1", video_url: "https://blob/reel.webm", kind: "highlights", created_at: "2026-07-01T00:00:00Z" })).toEqual({
+      id: "v1", videoUrl: "https://blob/reel.webm", kind: "highlights", createdAt: "2026-07-01T00:00:00Z",
     });
   });
 });

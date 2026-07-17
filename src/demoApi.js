@@ -108,8 +108,8 @@ export function createDemoApi() {
     uploadMatchVideo: async (keeperId, matchId, videoBlob) => URL.createObjectURL(videoBlob),
 
     listMatchVideos: async (keeperId, matchId) => videosByMatch[matchId] || [],
-    addMatchVideo: async (keeperId, matchId, videoUrl) => {
-      const record = { id: uid(), videoUrl, createdAt: new Date().toISOString() };
+    addMatchVideo: async (keeperId, matchId, videoUrl, kind = "clip") => {
+      const record = { id: uid(), videoUrl, kind, createdAt: new Date().toISOString() };
       videosByMatch[matchId] = [...(videosByMatch[matchId] || []), record];
       return record;
     },

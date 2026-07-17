@@ -5,6 +5,7 @@ import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
+import { extractHighlightWindows, buildReel, concatVideos } from "./highlightReel.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -104,6 +105,7 @@ const MORE_ITEMS = [
   { key: "interview", label: "Interview & Feedback", icon: "🎙️", desc: "Reflection questions after matches" },
   { key: "rankings", label: "Team Rankings", icon: "🏆", desc: "Your profile on the rankings site" },
   { key: "keeperRankings", label: "KeeperStat Rankings", icon: "🥇", desc: "See how public profiles rank" },
+  { key: "seasonHighlights", label: "Season Highlights", icon: "🎬", desc: "Stitch every match's best saves into one reel" },
   { key: "settings", label: "Settings", icon: "⚙️", desc: "Level of play, scoring & notifications" },
 ];
 
@@ -116,7 +118,7 @@ const TABS = [
 ];
 
 const activeTabFor = (screen) => {
-  if (["report", "training", "development", "parent", "interview", "rankings", "keeperRankings", "settings"].includes(screen)) return "more";
+  if (["report", "training", "development", "parent", "interview", "rankings", "keeperRankings", "seasonHighlights", "settings"].includes(screen)) return "more";
   if (screen === "dashboard") return "dashboard";
   return screen; // tracker, stats, progress
 };
@@ -1802,7 +1804,7 @@ const cellBox = (label, value) => (
   </Card>
 );
 
-const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded }) => {
+const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress }) => {
   const activeMatchN = matches.find((x) => x.n === matchId)?.n ?? matches[matches.length - 1]?.n;
   const activeMatchIdForClips = matches.find((x) => x.n === activeMatchN)?.id;
   // Clips live in root state (see App's videosByMatch) rather than local
@@ -1810,7 +1812,10 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   // often finishes uploading *after* this screen has already mounted — this
   // needs to pick that update up when it lands, not just snapshot whatever
   // existed at mount time.
-  const clips = (activeMatchIdForClips && videosByMatch[activeMatchIdForClips]) || [];
+  const videos = (activeMatchIdForClips && videosByMatch[activeMatchIdForClips]) || [];
+  const highlightReelVideo = videos.find((v) => v.kind === "highlights");
+  const clips = videos.filter((v) => v.kind !== "highlights");
+  const buildingReel = activeMatchIdForClips != null ? reelProgress?.[activeMatchIdForClips] : undefined;
 
   useEffect(() => {
     if (activeMatchIdForClips) ensureMatchVideosLoaded(activeMatchIdForClips);
@@ -1890,11 +1895,30 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             🎥 Watch Game Film
           </button>
         )}
-        {clips.length > 0 && (
+        {(clips.length > 0 || highlightReelVideo || buildingReel !== undefined) && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>
               RECORDED FOOTAGE{clips.length > 1 ? ` — ${clips.length} CLIPS` : ""}
             </div>
+            {highlightReelVideo && (
+              <button
+                onClick={() => window.open(highlightReelVideo.videoUrl, "_blank", "noopener,noreferrer")}
+                className="btn3d btn3d-outline"
+                style={{ width: "100%", marginBottom: clips.length ? 8 : 0, padding: 12, borderRadius: 12, color: C.gold, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: `1px solid ${C.gold}55` }}
+              >
+                ⭐ Watch Highlight Reel
+              </button>
+            )}
+            {buildingReel !== undefined && !highlightReelVideo && (
+              <div style={{ marginBottom: clips.length ? 8 : 0 }}>
+                <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600, marginBottom: 6 }}>
+                  ⭐ Building highlight reel… {Math.round(buildingReel * 100)}%
+                </div>
+                <div className="groove-track">
+                  <div style={{ width: `${Math.round(buildingReel * 100)}%`, height: "100%", background: `linear-gradient(90deg, ${C.gold}88, ${C.gold})`, borderRadius: 4, transition: "width .5s" }} />
+                </div>
+              </div>
+            )}
             {/* Each Record Film session (stop, then start again later) is its
                 own clip rather than one recording overwriting the last. */}
             {clips.map((clip, i) => (
@@ -1902,7 +1926,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
                 key={clip.id}
                 onClick={() => window.open(clip.videoUrl, "_blank", "noopener,noreferrer")}
                 className="btn3d btn3d-outline"
-                style={{ width: "100%", marginTop: i ? 8 : 0, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                style={{ width: "100%", marginTop: i || highlightReelVideo || buildingReel !== undefined ? 8 : 0, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
               >
                 🎥 Watch Clip {i + 1}
               </button>
@@ -1947,6 +1971,126 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             style={{ flex: 1, padding: 12, borderRadius: 12, fontSize: 13, fontWeight: 700, opacity: realIdx >= matches.length - 1 ? 0.4 : 1 }}
           >Next ›</button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Season Highlights ----------
+// Lists each match's auto-generated highlight reel and stitches them into
+// one season reel — built on demand, on-device (same replay-record
+// technique as the per-match reels), and offered for share/download rather
+// than persisted server-side: per-match reels are short, so rebuilding is
+// cheap, and a season reel doesn't belong to any single match row.
+const SeasonHighlights = ({ go, matches, videosByMatch, ensureMatchVideosLoaded, activeKeeper }) => {
+  const [progress, setProgress] = useState(null); // null | 0..1
+  const [resultUrl, setResultUrl] = useState(null);
+  const [error, setError] = useState(null);
+  const buildingRef = useRef(false);
+
+  useEffect(() => {
+    for (const m of matches) ensureMatchVideosLoaded(m.id);
+  }, [matches, ensureMatchVideosLoaded]);
+
+  // A rebuilt reel replaces the previous one — revoke the old object URL
+  // so long sessions don't leak the (potentially large) previous video.
+  useEffect(() => () => { if (resultUrl) URL.revokeObjectURL(resultUrl); }, [resultUrl]);
+
+  const reels = matches
+    .map((m) => ({ match: m, reel: (videosByMatch[m.id] || []).find((v) => v.kind === "highlights") }))
+    .filter((r) => r.reel);
+
+  const buildSeasonReel = async () => {
+    if (buildingRef.current) return;
+    buildingRef.current = true;
+    setError(null);
+    setResultUrl(null);
+    setProgress(0);
+    try {
+      const blobs = await Promise.all(reels.map((r) => fetch(r.reel.videoUrl).then((res) => {
+        if (!res.ok) throw new Error(`Fetching a reel failed: ${res.status}`);
+        return res.blob();
+      })));
+      const seasonBlob = await concatVideos(blobs, { onProgress: setProgress });
+      if (!seasonBlob) throw new Error("No footage produced");
+      setResultUrl(URL.createObjectURL(seasonBlob));
+    } catch (err) {
+      console.error("Failed to build season reel", err);
+      setError("Couldn't build the season reel. Check your connection and try again.");
+    } finally {
+      buildingRef.current = false;
+      setProgress(null);
+    }
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Header title="Season Highlights" left="‹" onLeft={() => go("progress")} />
+      <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
+        {reels.length === 0 ? (
+          <EmptyState
+            icon="🎬"
+            title="No highlight reels yet"
+            sub={`Record a match and tap Big Save or Penalty Save while filming — ${activeKeeper.name}'s highlight reels will collect here.`}
+            cta="Start Live Match"
+            onCta={() => go("tracker")}
+          />
+        ) : (
+          <>
+            <Card>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>
+                MATCH REELS — {reels.length}
+              </div>
+              {reels.map((r, i) => (
+                <button
+                  key={r.reel.id}
+                  onClick={() => window.open(r.reel.videoUrl, "_blank", "noopener,noreferrer")}
+                  className="btn3d btn3d-outline"
+                  style={{ width: "100%", marginTop: i ? 8 : 0, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+                >
+                  <span>⭐ vs {r.match.opp}</span>
+                  <span style={{ color: C.gray, fontWeight: 600, fontSize: 12 }}>Match {r.match.n}</span>
+                </button>
+              ))}
+            </Card>
+            {progress !== null ? (
+              <Card style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600, marginBottom: 6 }}>
+                  🎬 Building season reel… {Math.round(progress * 100)}%
+                </div>
+                <div className="groove-track">
+                  <div style={{ width: `${Math.round(progress * 100)}%`, height: "100%", background: `linear-gradient(90deg, ${C.gold}88, ${C.gold})`, borderRadius: 4, transition: "width .5s" }} />
+                </div>
+                <div style={{ fontSize: 11.5, color: C.grayDark, marginTop: 8, lineHeight: 1.4 }}>
+                  The reel is assembled by replaying each match's highlights, so this takes about as long as the finished video runs. Keep this tab open.
+                </div>
+              </Card>
+            ) : (
+              <button
+                onClick={buildSeasonReel}
+                className="btn3d btn3d-orange"
+                style={{ width: "100%", marginTop: 16, padding: 15, borderRadius: 16, fontFamily: fontCond, fontWeight: 700, fontSize: 16, letterSpacing: 1 }}
+              >
+                🎬 BUILD SEASON REEL
+              </button>
+            )}
+            {error && <div style={{ fontSize: 12.5, color: C.red, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{error}</div>}
+            {resultUrl && (
+              <Card style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>SEASON REEL</div>
+                <video src={resultUrl} controls playsInline style={{ width: "100%", borderRadius: 12, background: "#000" }} />
+                <a
+                  href={resultUrl}
+                  download={`${activeKeeper.name.replace(/\s+/g, "-")}-season-highlights.webm`}
+                  className="btn3d btn3d-outline"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", marginTop: 10, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, textDecoration: "none" }}
+                >
+                  ⬇ Save Video
+                </a>
+              </Card>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2737,6 +2881,49 @@ const emptyMatch = (opponent = "") => ({
   penaltySaves: 0, bigSaves: 0, errors: 0, notes: "", teamShotsOnGoal: 0,
 });
 
+// Pure reducer for live-tracker actions, extracted from dispatch so the
+// dispatch wrapper has a single point to stamp new log entries with
+// recording metadata (see dispatch in KeeperStat below).
+function applyMatchAction(m, a) {
+  if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
+  if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
+  if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
+  if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
+  if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
+  if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
+  if (a.type === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionMiss", label: "Distribution Missed" }] };
+  if (a.type === "claim") return { ...m, claims: m.claims + 1, log: [...m.log, { t: "claim", label: "Claim" }] };
+  if (a.type === "punch") return { ...m, punches: m.punches + 1, log: [...m.log, { t: "punch", label: "Punch" }] };
+  if (a.type === "penaltySave") return { ...m, penaltySaves: m.penaltySaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "penaltySave", label: "Penalty Save" }] };
+  if (a.type === "bigSave") return { ...m, bigSaves: m.bigSaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "bigSave", label: "Big Save" }] };
+  if (a.type === "toggleError") {
+    if (!m.log.length) return m;
+    const lastIdx = m.log.length - 1;
+    const last = m.log[lastIdx];
+    if (last.t !== "goal") return m;
+    const flagged = !last.isError;
+    const log = [...m.log];
+    log[lastIdx] = { ...last, isError: flagged, label: flagged ? "Goal Against (Error)" : "Goal Against" };
+    return { ...m, errors: m.errors + (flagged ? 1 : -1), log };
+  }
+  if (a.type === "undo" && m.log.length) {
+    const last = m.log[m.log.length - 1];
+    const log = m.log.slice(0, -1);
+    if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
+    if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
+    if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
+    if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
+    if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
+    if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
+    if (last.t === "claim") return { ...m, claims: m.claims - 1, log };
+    if (last.t === "punch") return { ...m, punches: m.punches - 1, log };
+    if (last.t === "penaltySave") return { ...m, penaltySaves: m.penaltySaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
+    if (last.t === "bigSave") return { ...m, bigSaves: m.bigSaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
+    return { ...m, shotsFaced: m.shotsFaced - 1, log };
+  }
+  return m;
+}
+
 export default function KeeperStat() {
   const [screen, setScreen] = useState("welcome");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -2748,6 +2935,10 @@ export default function KeeperStat() {
   const [recordingError, setRecordingError] = useState(null);
   const [videoStream, setVideoStream] = useState(null);
   const matchRecorderRef = useRef(null);
+  // While a clip is recording, dispatch stamps every logged event with the
+  // clip's index and the elapsed seconds into it (highlight-reel anchors).
+  const recordingStartedAtRef = useRef(null);
+  const recordingClipIndexRef = useRef(0);
   // A match can be filmed across multiple separate Record Film sessions
   // (stop, keep tracking stats manually for a while, start a new clip
   // later) — each stop pushes its blob onto this array rather than
@@ -2799,6 +2990,10 @@ export default function KeeperStat() {
   // clips needs to react to that update landing later, not just snapshot
   // whatever existed at mount time.
   const [videosByMatch, setVideosByMatch] = useState({});
+  // { [matchId]: 0..1 } while a highlight reel is being assembled for that
+  // match — reel building replays footage in real time, so the report
+  // screen shows progress instead of appearing stuck.
+  const [reelProgress, setReelProgress] = useState({});
   // Fetches a match's recorded clips at most once — a matchId already
   // present in videosByMatch (even as an empty array) is treated as
   // already loaded or already being populated by the save flow itself, so
@@ -3115,6 +3310,7 @@ export default function KeeperStat() {
   // stopped the moment the match ends since there's nothing left to film.
   const toggleRecording = async () => {
     if (recording) {
+      recordingStartedAtRef.current = null;
       const blob = await matchRecorderRef.current?.stop();
       if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
       setRecording(false);
@@ -3125,6 +3321,8 @@ export default function KeeperStat() {
     matchRecorderRef.current = new MatchRecorder();
     try {
       const stream = await matchRecorderRef.current.start(activeKeeper.name);
+      recordingClipIndexRef.current = recordedVideoClipsRef.current.length;
+      recordingStartedAtRef.current = Date.now();
       setVideoStream(stream);
       setRecording(true);
     } catch (err) {
@@ -3135,6 +3333,7 @@ export default function KeeperStat() {
   };
   const endMatch = async () => {
     if (recording) {
+      recordingStartedAtRef.current = null;
       const blob = await matchRecorderRef.current?.stop();
       if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
       setRecording(false);
@@ -3145,6 +3344,7 @@ export default function KeeperStat() {
   const resumeMatch = () => setMatchStatus("live");
   const discardMatch = () => {
     if (recording) {
+      recordingStartedAtRef.current = null;
       matchRecorderRef.current?.discard();
       setRecording(false);
       setVideoStream(null);
@@ -3222,6 +3422,37 @@ export default function KeeperStat() {
               );
             }
           });
+
+          // Big Saves / Penalty Saves tapped while filming become an
+          // auto-stitched highlight reel. Best-effort and background,
+          // like the clip uploads: reel assembly replays footage in real
+          // time, so the report screen shows progress meanwhile.
+          const highlightWindows = extractHighlightWindows(match.log);
+          if (Object.keys(highlightWindows).some((k) => clips[k])) {
+            setReelProgress((rp) => ({ ...rp, [record.id]: 0 }));
+            buildReel(clips, highlightWindows, {
+              onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
+            })
+              .then((reelBlob) => {
+                if (!reelBlob) return null;
+                return dataApi.uploadMatchVideo(activeKeeperId, record.id, reelBlob)
+                  .then((videoUrl) => dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, "highlights"))
+                  .then((videoRecord) => {
+                    setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+                  });
+              })
+              .catch((err) => {
+                console.error("Failed to build/upload highlight reel", err);
+                showError("Match saved, but the highlight reel couldn't be created.");
+              })
+              .finally(() => {
+                setReelProgress((rp) => {
+                  const next = { ...rp };
+                  delete next[record.id];
+                  return next;
+                });
+              });
+          }
         }
         go("report", record.n);
       })
@@ -3234,44 +3465,21 @@ export default function KeeperStat() {
   };
 
   const dispatch = (a) => {
+    // While filming, stamp each new log entry with which clip is recording
+    // and the offset into it — that's what lets the highlight reel find
+    // this exact moment in the footage later. Events logged while not
+    // filming stay unstamped: there's no footage of them to excerpt.
+    const stamp = recordingStartedAtRef.current != null
+      ? { clip: recordingClipIndexRef.current, at: Math.round((Date.now() - recordingStartedAtRef.current) / 100) / 10 }
+      : null;
     setMatch((m) => {
-      if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
-      if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
-      if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
-      if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
-      if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
-      if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
-      if (a.type === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionMiss", label: "Distribution Missed" }] };
-      if (a.type === "claim") return { ...m, claims: m.claims + 1, log: [...m.log, { t: "claim", label: "Claim" }] };
-      if (a.type === "punch") return { ...m, punches: m.punches + 1, log: [...m.log, { t: "punch", label: "Punch" }] };
-      if (a.type === "penaltySave") return { ...m, penaltySaves: m.penaltySaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "penaltySave", label: "Penalty Save" }] };
-      if (a.type === "bigSave") return { ...m, bigSaves: m.bigSaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "bigSave", label: "Big Save" }] };
-      if (a.type === "toggleError") {
-        if (!m.log.length) return m;
-        const lastIdx = m.log.length - 1;
-        const last = m.log[lastIdx];
-        if (last.t !== "goal") return m;
-        const flagged = !last.isError;
-        const log = [...m.log];
-        log[lastIdx] = { ...last, isError: flagged, label: flagged ? "Goal Against (Error)" : "Goal Against" };
-        return { ...m, errors: m.errors + (flagged ? 1 : -1), log };
+      const next = applyMatchAction(m, a);
+      if (stamp && next !== m && next.log.length > m.log.length) {
+        const log = [...next.log];
+        log[log.length - 1] = { ...log[log.length - 1], ...stamp };
+        return { ...next, log };
       }
-      if (a.type === "undo" && m.log.length) {
-        const last = m.log[m.log.length - 1];
-        const log = m.log.slice(0, -1);
-        if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-        if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
-        if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
-        if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
-        if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
-        if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
-        if (last.t === "claim") return { ...m, claims: m.claims - 1, log };
-        if (last.t === "punch") return { ...m, punches: m.punches - 1, log };
-        if (last.t === "penaltySave") return { ...m, penaltySaves: m.penaltySaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-        if (last.t === "bigSave") return { ...m, bigSaves: m.bigSaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-        return { ...m, shotsFaced: m.shotsFaced - 1, log };
-      }
-      return m;
+      return next;
     });
   };
 
@@ -3343,12 +3551,13 @@ export default function KeeperStat() {
     dashboard: <Dashboard go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)} />,
     parent: <ParentView go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
-    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} />,
+    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} matches={matches} />,
     interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,
     rankings: <Rankings go={go} activeKeeper={activeKeeper} />,
     keeperRankings: <KeeperStatRankings go={go} mode={mode} rankings={rankings} rankingsLoading={rankingsLoading} activeKeeper={activeKeeper} />,
+    seasonHighlights: <SeasonHighlights go={go} matches={matches} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} activeKeeper={activeKeeper} />,
     settings: (
       <Settings
         go={go}
