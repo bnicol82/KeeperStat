@@ -61,23 +61,65 @@ function withTimeout(promise, ms, { fallback, error } = {}) {
   });
 }
 
+// MUST be called synchronously inside a user tap/click handler (no awaits
+// before it). iOS gates two things on direct user gestures, and both cost
+// the reel its sound when missed: an AudioContext only starts when
+// created/resumed during a gesture (otherwise resume() pends forever), and
+// unmuted programmatic play() is only allowed on elements that were
+// play()ed at least once during a gesture. This primes both — the audio
+// context and one pre-activated element per clip — inside the tap, so the
+// async reel build afterward can capture real audio. Ownership passes to
+// buildReel/concatVideos via the `primed` option, which cleans it all up.
+export function primeReelPlayback(blobs) {
+  let audioCtx = null;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume().catch(() => {});
+  } catch {
+    audioCtx = null;
+  }
+  const clips = blobs.map((blob) => {
+    const url = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    // The activation "unlock": play() invoked within the gesture flags the
+    // element as user-activated even though it's immediately paused.
+    const p = video.play();
+    p?.catch(() => {});
+    video.pause();
+    return { video, url };
+  });
+  return { audioCtx, clips };
+}
+
 // Chrome's MediaRecorder writes webm with no duration header, so a video
 // element reports duration: Infinity until it's been force-seeked past the
 // end once — the standard workaround for in-browser recordings.
-async function loadClipVideo(blob) {
-  const url = URL.createObjectURL(blob);
-  const video = document.createElement("video");
-  video.playsInline = true;
-  video.preload = "auto";
-  video.src = url;
-  await withTimeout(
-    new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve;
-      video.onerror = () => reject(new Error("Couldn't load a recorded clip"));
-    }),
-    10000,
-    { error: "Loading a recorded clip timed out" }
-  );
+async function loadClipVideo(blob, primedClip) {
+  let video, url;
+  if (primedClip) {
+    ({ video, url } = primedClip);
+  } else {
+    url = URL.createObjectURL(blob);
+    video = document.createElement("video");
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+  }
+  // A primed element may have finished loading metadata before this runs —
+  // check readyState instead of racing the event.
+  if (video.readyState < 1) {
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = () => reject(new Error("Couldn't load a recorded clip"));
+      }),
+      10000,
+      { error: "Loading a recorded clip timed out" }
+    );
+  }
   if (!Number.isFinite(video.duration)) {
     await withTimeout(
       new Promise((resolve) => {
@@ -105,10 +147,12 @@ function seekTo(video, t) {
   );
 }
 
-// iOS autoplay policy rejects play() on unmuted videos outside a user
-// gesture. Muting and retrying always works — and when the audio graph is
-// active, MediaElementSource has already rerouted the element's audio, so
-// sound capture is unaffected by falling back this way.
+// iOS autoplay policy rejects play() on unmuted videos that were never
+// play()ed during a user gesture — primeReelPlayback exists precisely so
+// this first attempt succeeds. Muting and retrying is a last resort that
+// saves the reel's video but loses that segment's sound (muting an element
+// also silences its MediaElementSource capture in real browsers, despite
+// what the spec implies), so it's a degradation path, not a plan.
 async function playWithFallback(video) {
   try {
     await video.play();
@@ -123,13 +167,14 @@ async function playWithFallback(video) {
 // are skipped). Resolves null when there's nothing to stitch. The source
 // clips already carry the KeeperStat + keeper-name watermark burned in by
 // MatchRecorder, so no re-watermarking happens here.
-export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
+export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed } = {}) {
   const plan = [];
   const loaded = [];
+  let audioCtx = null;
   try {
     for (const key of Object.keys(windowsByClip).map(Number).sort((a, b) => a - b)) {
       if (!clipBlobs[key] || !windowsByClip[key]?.length) continue;
-      const clip = await loadClipVideo(clipBlobs[key]);
+      const clip = await loadClipVideo(clipBlobs[key], primed?.clips?.[key]);
       loaded.push(clip);
       for (const [start, end] of windowsByClip[key]) {
         const clampedEnd = Math.min(end, clip.video.duration);
@@ -146,12 +191,13 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
 
     // Audio can't ride along on canvas.captureStream() (video-only), so
     // each clip's sound is routed through an AudioContext into a stream
-    // destination and merged in. If the context can't start (autoplay
-    // policy edge cases), the reel still builds — just silent.
-    let audioCtx = null;
+    // destination and merged in. The gesture-primed context (created
+    // inside the user's tap — see primeReelPlayback) is what makes this
+    // work on iOS; a self-created one here only starts outside iOS. If
+    // neither starts, the reel still builds — just silent.
     let audioDest = null;
     try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = primed?.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       // NEVER await resume() unbounded: outside a user gesture iOS Safari
       // leaves it pending forever (it doesn't reject), which used to hang
       // the whole build at 0%. Give it a moment, then check state.
@@ -161,8 +207,6 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
       for (const clip of loaded) audioCtx.createMediaElementSource(clip.video).connect(audioDest);
     } catch (err) {
       console.error("Reel audio unavailable, building silent reel", err);
-      audioCtx?.close().catch(() => {});
-      audioCtx = null;
       audioDest = null;
     }
 
@@ -228,7 +272,6 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
       // whatever chunks were delivered rather than hanging.
       { fallback: null }
     ).then((b) => b ?? (chunks.length ? new Blob(chunks, { type: finalMime }) : null));
-    audioCtx?.close().catch(() => {});
     // Segments were planned and played but the recorder delivered nothing —
     // that's a device/browser recording failure, not "nothing to stitch".
     // Throwing (instead of returning null) lets the caller show its error
@@ -237,11 +280,21 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
     if (!blob || blob.size === 0) throw new Error("The recorder produced no output on this device");
     return blob;
   } finally {
-    for (const clip of loaded) {
+    // Owns cleanup of everything, primed or self-created, on every exit
+    // path (success, empty plan, or throw): close the audio context and
+    // release each clip element — including primed elements whose clip
+    // index never made it into the plan.
+    audioCtx?.close().catch(() => {});
+    const toRelease = [...loaded];
+    for (const primedClip of primed?.clips || []) {
+      if (primedClip && !loaded.some((c) => c.video === primedClip.video)) toRelease.push(primedClip);
+    }
+    for (const clip of toRelease) {
       clip.video.pause();
       clip.video.src = "";
       URL.revokeObjectURL(clip.url);
     }
+    if (primed?.audioCtx && primed.audioCtx !== audioCtx) primed.audioCtx.close().catch(() => {});
   }
 }
 
@@ -249,10 +302,10 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
 // used to stitch per-match highlight reels into a season reel. Each input
 // is "windowed" across its whole duration (Infinity is clamped per clip
 // inside buildReel).
-export function concatVideos(blobs, { onProgress } = {}) {
+export function concatVideos(blobs, { onProgress, primed } = {}) {
   const windowsByClip = {};
   blobs.forEach((_, i) => {
     windowsByClip[i] = [[0, Infinity]];
   });
-  return buildReel(blobs, windowsByClip, { onProgress });
+  return buildReel(blobs, windowsByClip, { onProgress, primed });
 }
