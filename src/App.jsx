@@ -1804,7 +1804,7 @@ const cellBox = (label, value) => (
   </Card>
 );
 
-const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress }) => {
+const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress, uploadStatus }) => {
   const activeMatchN = matches.find((x) => x.n === matchId)?.n ?? matches[matches.length - 1]?.n;
   const activeMatchIdForClips = matches.find((x) => x.n === activeMatchN)?.id;
   // Clips live in root state (see App's videosByMatch) rather than local
@@ -1816,6 +1816,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const highlightReelVideo = videos.find((v) => v.kind === "highlights");
   const clips = videos.filter((v) => v.kind !== "highlights");
   const buildingReel = activeMatchIdForClips != null ? reelProgress?.[activeMatchIdForClips] : undefined;
+  const uploading = activeMatchIdForClips != null ? uploadStatus?.[activeMatchIdForClips] : undefined;
 
   useEffect(() => {
     if (activeMatchIdForClips) ensureMatchVideosLoaded(activeMatchIdForClips);
@@ -1895,7 +1896,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             🎥 Watch Game Film
           </button>
         )}
-        {(clips.length > 0 || highlightReelVideo || buildingReel !== undefined) && (
+        {(clips.length > 0 || highlightReelVideo || buildingReel !== undefined || uploading) && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>
               RECORDED FOOTAGE{clips.length > 1 ? ` — ${clips.length} CLIPS` : ""}
@@ -1917,6 +1918,11 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
                 <div className="groove-track">
                   <div style={{ width: `${Math.round(buildingReel * 100)}%`, height: "100%", background: `linear-gradient(90deg, ${C.gold}88, ${C.gold})`, borderRadius: 4, transition: "width .5s" }} />
                 </div>
+              </div>
+            )}
+            {uploading && (
+              <div style={{ fontSize: 12.5, color: C.gray, fontWeight: 600, marginBottom: clips.length || highlightReelVideo ? 8 : 0 }}>
+                ⤴ Uploading videos… {Math.min(uploading.done + 1, uploading.total)} of {uploading.total}
               </div>
             )}
             {/* Each Record Film session (stop, then start again later) is its
@@ -2994,18 +3000,29 @@ export default function KeeperStat() {
   // match — reel building replays footage in real time, so the report
   // screen shows progress instead of appearing stuck.
   const [reelProgress, setReelProgress] = useState({});
-  // Fetches a match's recorded clips at most once — a matchId already
-  // present in videosByMatch (even as an empty array) is treated as
-  // already loaded or already being populated by the save flow itself, so
-  // this never races an in-flight upload's optimistic update.
+  // { [matchId]: { done, total } } while clips/reel are uploading — the
+  // report shows it so a slow mobile upload reads as "still working"
+  // instead of videos silently never appearing.
+  const [uploadStatus, setUploadStatus] = useState({});
+  // Refreshes a match's recorded clips from the server and MERGES by id
+  // with whatever's already in state, rather than fetch-once-then-trust.
+  // The earlier fetch-at-most-once version had a trap: the save flow marks
+  // a match as "known" (empty array) before uploads start, and if the
+  // session ended before an upload's success callback ran, that stale
+  // empty entry blocked refetching forever — videos that HAD saved
+  // server-side never appeared until a brand-new session. Merging lets a
+  // refetch and in-flight optimistic appends coexist without clobbering
+  // each other.
   const ensureMatchVideosLoaded = useCallback((matchId) => {
-    setVideosByMatch((vb) => {
-      if (matchId in vb) return vb;
-      dataApi.listMatchVideos(activeKeeperId, matchId)
-        .then((list) => setVideosByMatch((vb2) => ({ ...vb2, [matchId]: list })))
-        .catch((err) => console.error("Failed to load recorded clips", err));
-      return { ...vb, [matchId]: [] };
-    });
+    dataApi.listMatchVideos(activeKeeperId, matchId)
+      .then((list) => {
+        setVideosByMatch((vb) => {
+          const existing = vb[matchId] || [];
+          const merged = [...list, ...existing.filter((v) => !list.some((s) => s.id === v.id))];
+          return { ...vb, [matchId]: merged };
+        });
+      })
+      .catch((err) => console.error("Failed to load recorded clips", err));
   }, [dataApi, activeKeeperId]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [rankings, setRankings] = useState([]);
@@ -3397,62 +3414,72 @@ export default function KeeperStat() {
         const clips = recordedVideoClipsRef.current;
         recordedVideoClipsRef.current = [];
         if (clips.length) {
-          // Marks this match as "known" immediately (an empty array, not
-          // undefined) so the report screen's ensureMatchVideosLoaded sees
-          // it's already tracked and doesn't kick off a redundant fetch
-          // that could race these uploads and clobber their results.
-          setVideosByMatch((vb) => ({ ...vb, [record.id]: vb[record.id] || [] }));
-
-          // Everything runs SEQUENTIALLY: clip uploads one at a time, then
-          // the reel build, then the reel upload. Launching two large
-          // uploads and a realtime video re-encode simultaneously
-          // overwhelmed phones — memory pressure killed uploads (clips
-          // going missing) and main-thread contention crackled the reel's
-          // audio capture.
+          // LOCAL WORK FIRST, NETWORK SECOND. The reel build is entirely
+          // on-device and bounded by watchdogs, so it runs before any
+          // upload — an upload stalling on a weak sideline connection can
+          // then only delay uploads, never block the reel from existing.
+          // (An earlier ordering serialized everything behind the first
+          // clip upload; one stalled upload made clips, reel, and all
+          // feedback silently never appear.) Uploads stay sequential —
+          // parallel large uploads plus video work overwhelmed phones —
+          // but each one is bounded by an abort timeout so a stall becomes
+          // a counted failure instead of an invisible, indefinite hang.
           (async () => {
-            let failures = 0;
-            for (const clip of clips) {
+            const highlightWindows = extractHighlightWindows(match.log);
+            let reelBlob = null;
+            if (Object.keys(highlightWindows).some((k) => clips[k])) {
+              setReelProgress((rp) => ({ ...rp, [record.id]: 0 }));
               try {
-                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, clip);
-                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl);
+                reelBlob = await buildReel(clips, highlightWindows, {
+                  onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
+                });
+              } catch (err) {
+                console.error("Failed to build highlight reel", err);
+                showError("Match saved, but the highlight reel couldn't be created.");
+              } finally {
+                setReelProgress((rp) => {
+                  const next = { ...rp };
+                  delete next[record.id];
+                  return next;
+                });
+              }
+            }
+
+            const toUpload = [
+              ...clips.map((blob) => ({ blob, kind: "clip" })),
+              ...(reelBlob ? [{ blob: reelBlob, kind: "highlights" }] : []),
+            ];
+            setUploadStatus((us) => ({ ...us, [record.id]: { done: 0, total: toUpload.length } }));
+            let failures = 0;
+            for (const item of toUpload) {
+              const aborter = new AbortController();
+              const timer = setTimeout(() => aborter.abort(), 5 * 60 * 1000);
+              try {
+                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, item.blob, { abortSignal: aborter.signal });
+                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, item.kind);
                 setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
               } catch (err) {
                 failures++;
-                console.error("Failed to upload match recording", err);
+                console.error(`Failed to upload match ${item.kind}`, err);
+              } finally {
+                clearTimeout(timer);
+                setUploadStatus((us) => {
+                  const cur = us[record.id];
+                  return cur ? { ...us, [record.id]: { ...cur, done: cur.done + 1 } } : us;
+                });
               }
             }
+            setUploadStatus((us) => {
+              const next = { ...us };
+              delete next[record.id];
+              return next;
+            });
             if (failures) {
               showError(
-                failures === clips.length
+                failures === toUpload.length
                   ? "Match saved, but the recorded video couldn't be uploaded."
-                  : `Match saved, but ${failures} of ${clips.length} recorded clips couldn't be uploaded.`
+                  : `Match saved, but ${failures} of ${toUpload.length} videos couldn't be uploaded.`
               );
-            }
-
-            // Big Saves / Penalty Saves tapped while filming become an
-            // auto-stitched highlight reel. Reel assembly replays footage
-            // in real time, so the report screen shows progress meanwhile.
-            const highlightWindows = extractHighlightWindows(match.log);
-            if (!Object.keys(highlightWindows).some((k) => clips[k])) return;
-            setReelProgress((rp) => ({ ...rp, [record.id]: 0 }));
-            try {
-              const reelBlob = await buildReel(clips, highlightWindows, {
-                onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
-              });
-              if (reelBlob) {
-                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, reelBlob);
-                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, "highlights");
-                setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
-              }
-            } catch (err) {
-              console.error("Failed to build/upload highlight reel", err);
-              showError("Match saved, but the highlight reel couldn't be created.");
-            } finally {
-              setReelProgress((rp) => {
-                const next = { ...rp };
-                delete next[record.id];
-                return next;
-              });
             }
           })();
         }
@@ -3553,7 +3580,7 @@ export default function KeeperStat() {
     dashboard: <Dashboard go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)} />,
     parent: <ParentView go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
-    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} />,
+    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} matches={matches} />,
     interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,
