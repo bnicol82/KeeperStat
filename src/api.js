@@ -53,13 +53,14 @@ export const api = {
     });
     return blob.url;
   },
-  uploadMatchVideo: async (keeperId, matchId, videoBlob) => {
+  uploadMatchVideo: async (keeperId, matchId, videoBlob, { abortSignal } = {}) => {
     const token = getAuthToken();
     const ext = extensionForMimeType(videoBlob.type);
     const blob = await upload(`keepers/${keeperId}/matches/${matchId}/game-film.${ext}`, videoBlob, {
       access: "public",
       handleUploadUrl: `${BASE_URL}/api/keepers/${keeperId}/matches/${matchId}/video`,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      abortSignal,
     });
     return blob.url;
   },
