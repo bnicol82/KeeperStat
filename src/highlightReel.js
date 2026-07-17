@@ -18,6 +18,22 @@ import { pickMimeType } from "./videoRecorder.js";
 
 export const HIGHLIGHT_EVENT_TYPES = ["bigSave", "penaltySave"];
 
+// WebKit and Chromium disagree about what happens to a media element wired
+// into an audio graph via MediaElementAudioSourceNode:
+//   - Chromium truly REROUTES the element's audio — nothing reaches the
+//     speaker, and muting the element also silences the captured stream.
+//   - WebKit (all of iOS, plus desktop Safari) keeps playing the element
+//     out loud IN ADDITION to feeding the graph — but taps the audio for
+//     the graph BEFORE the mute applies, so muting the element silences
+//     the speaker without losing the capture.
+// So the correct behavior is inverted per engine: mute on WebKit (or the
+// reel build blasts the clips through the phone's speaker), never mute on
+// Chromium (or the reel goes silent). Exported for tests.
+export function isWebKitPlayback(ua = typeof navigator !== "undefined" ? navigator.userAgent : "") {
+  if (/iPhone|iPad|iPod/.test(ua)) return true; // every iOS browser is WebKit
+  return /Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR/.test(ua);
+}
+
 // Turns a match's event log into per-clip time windows worth keeping:
 // [start, end] seconds around each highlight event, overlapping windows
 // merged, starts clamped to 0. Entries without clip/at stamps (logged
@@ -205,9 +221,20 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
       if (audioCtx.state !== "running") throw new Error(`AudioContext stuck in state '${audioCtx.state}'`);
       audioDest = audioCtx.createMediaStreamDestination();
       for (const clip of loaded) audioCtx.createMediaElementSource(clip.video).connect(audioDest);
+      // See isWebKitPlayback: on WebKit the graph taps audio pre-mute, so
+      // muting stops the out-loud playback without losing capture; on
+      // Chromium the graph already reroutes (nothing audible) and muting
+      // would silence the capture instead.
+      if (isWebKitPlayback()) {
+        for (const clip of loaded) clip.video.muted = true;
+      }
     } catch (err) {
       console.error("Reel audio unavailable, building silent reel", err);
       audioDest = null;
+      // No audio graph means nothing can be captured anyway — mute the
+      // clips so the fallback build is quiet instead of playing every
+      // highlight out loud through the speaker while it assembles.
+      for (const clip of loaded) clip.video.muted = true;
     }
 
     const canvasStream = canvas.captureStream(30);
