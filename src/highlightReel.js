@@ -43,6 +43,24 @@ export function extractHighlightWindows(log, { before = 7, after = 3 } = {}) {
   return byClip;
 }
 
+// Bounds every browser-event wait in this module. iOS Safari in particular
+// has promises that silently never settle outside a user gesture
+// (AudioContext.resume is the worst offender) — an unbounded await there
+// froze reel-building at 0% forever on iPhones. `fallback` distinguishes
+// waits that can safely proceed on timeout from ones that must fail.
+function withTimeout(promise, ms, { fallback, error } = {}) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (error) reject(new Error(error));
+      else resolve(fallback);
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 // Chrome's MediaRecorder writes webm with no duration header, so a video
 // element reports duration: Infinity until it's been force-seeked past the
 // end once — the standard workaround for in-browser recordings.
@@ -52,25 +70,52 @@ async function loadClipVideo(blob) {
   video.playsInline = true;
   video.preload = "auto";
   video.src = url;
-  await new Promise((resolve, reject) => {
-    video.onloadedmetadata = resolve;
-    video.onerror = () => reject(new Error("Couldn't load a recorded clip"));
-  });
+  await withTimeout(
+    new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error("Couldn't load a recorded clip"));
+    }),
+    10000,
+    { error: "Loading a recorded clip timed out" }
+  );
   if (!Number.isFinite(video.duration)) {
-    await new Promise((resolve) => {
-      video.onseeked = resolve;
-      video.currentTime = 1e10;
-    });
+    await withTimeout(
+      new Promise((resolve) => {
+        video.onseeked = resolve;
+        video.currentTime = 1e10;
+      }),
+      5000,
+      { fallback: undefined }
+    );
     video.currentTime = 0;
   }
   return { video, url };
 }
 
 function seekTo(video, t) {
-  return new Promise((resolve) => {
-    video.onseeked = resolve;
-    video.currentTime = t;
-  });
+  // Best-effort: a missed seeked event just means the segment starts from
+  // wherever the element landed, rather than hanging the whole build.
+  return withTimeout(
+    new Promise((resolve) => {
+      video.onseeked = resolve;
+      video.currentTime = t;
+    }),
+    5000,
+    { fallback: undefined }
+  );
+}
+
+// iOS autoplay policy rejects play() on unmuted videos outside a user
+// gesture. Muting and retrying always works — and when the audio graph is
+// active, MediaElementSource has already rerouted the element's audio, so
+// sound capture is unaffected by falling back this way.
+async function playWithFallback(video) {
+  try {
+    await video.play();
+  } catch {
+    video.muted = true;
+    await video.play();
+  }
 }
 
 // Replays the given windows from each clip into a single recorded Blob.
@@ -107,11 +152,16 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
     let audioDest = null;
     try {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      await audioCtx.resume();
+      // NEVER await resume() unbounded: outside a user gesture iOS Safari
+      // leaves it pending forever (it doesn't reject), which used to hang
+      // the whole build at 0%. Give it a moment, then check state.
+      await withTimeout(audioCtx.resume(), 800, { fallback: undefined });
+      if (audioCtx.state !== "running") throw new Error(`AudioContext stuck in state '${audioCtx.state}'`);
       audioDest = audioCtx.createMediaStreamDestination();
       for (const clip of loaded) audioCtx.createMediaElementSource(clip.video).connect(audioDest);
     } catch (err) {
       console.error("Reel audio unavailable, building silent reel", err);
+      audioCtx?.close().catch(() => {});
       audioCtx = null;
       audioDest = null;
     }
@@ -127,37 +177,58 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunks.push(e.data);
     };
+    // pause()/resume() between segments keeps seek gaps out of the output,
+    // but Safari's MediaRecorder has historically been flaky about them —
+    // if either throws, keep recording continuously instead (the cost is a
+    // few frozen frames between segments, not a broken build).
+    const pauseRecorder = () => { try { recorder.pause(); } catch { /* keep recording */ } };
+    const resumeRecorder = () => { try { if (recorder.state === "paused") recorder.resume(); } catch { /* already recording */ } };
     recorder.start(1000);
-    recorder.pause(); // only capture while a segment is actually playing
+    pauseRecorder(); // only capture while a segment is actually playing
 
     let doneSeconds = 0;
     for (const segment of plan) {
       const { video, start, end } = segment;
       await seekTo(video, start);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      recorder.resume();
-      await video.play();
+      resumeRecorder();
+      await playWithFallback(video);
       await new Promise((resolve) => {
+        // Watchdog: if playback stops advancing (tab throttled, decoder
+        // stall), end the segment rather than spinning at one progress
+        // value forever — a shorter reel beats a build that never finishes.
+        let lastTime = -1;
+        let lastAdvanceAt = Date.now();
         const timer = setInterval(() => {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           onProgress?.(Math.min(1, (doneSeconds + Math.max(0, video.currentTime - start)) / totalSeconds));
-          if (video.currentTime >= end || video.ended) {
+          if (video.currentTime !== lastTime) {
+            lastTime = video.currentTime;
+            lastAdvanceAt = Date.now();
+          }
+          if (video.currentTime >= end || video.ended || Date.now() - lastAdvanceAt > 8000) {
             clearInterval(timer);
             resolve();
           }
         }, 1000 / 30);
       });
       video.pause();
-      recorder.pause();
+      pauseRecorder();
       doneSeconds += end - start;
       onProgress?.(Math.min(1, doneSeconds / totalSeconds));
     }
 
-    const blob = await new Promise((resolve) => {
-      const finalMime = recorder.mimeType || "video/webm";
-      recorder.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: finalMime }) : null);
-      recorder.stop();
-    });
+    const finalMime = recorder.mimeType || "video/webm";
+    const blob = await withTimeout(
+      new Promise((resolve) => {
+        recorder.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: finalMime }) : null);
+        recorder.stop();
+      }),
+      10000,
+      // onstop never firing is a real Safari failure mode — salvage
+      // whatever chunks were delivered rather than hanging.
+      { fallback: null }
+    ).then((b) => b ?? (chunks.length ? new Blob(chunks, { type: finalMime }) : null));
     audioCtx?.close().catch(() => {});
     return blob && blob.size > 0 ? blob : null;
   } finally {
