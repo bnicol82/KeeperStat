@@ -177,21 +177,21 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunks.push(e.data);
     };
-    // pause()/resume() between segments keeps seek gaps out of the output,
-    // but Safari's MediaRecorder has historically been flaky about them —
-    // if either throws, keep recording continuously instead (the cost is a
-    // few frozen frames between segments, not a broken build).
-    const pauseRecorder = () => { try { recorder.pause(); } catch { /* keep recording */ } };
-    const resumeRecorder = () => { try { if (recorder.state === "paused") recorder.resume(); } catch { /* already recording */ } };
+    // The recorder runs CONTINUOUSLY from the first segment to the last —
+    // never pause()/resume(). Cycling a paused recorder per segment
+    // produced glitchy, crackling audio on Safari (whose MediaRecorder is
+    // notoriously unreliable across pause/resume, and sometimes delivers
+    // zero output entirely when paused immediately after starting). The
+    // trade-off is that seek gaps between segments are recorded as a brief
+    // frozen frame with silent audio — clean and stable on every browser,
+    // versus corrupted audio on iOS.
     recorder.start(1000);
-    pauseRecorder(); // only capture while a segment is actually playing
 
     let doneSeconds = 0;
     for (const segment of plan) {
       const { video, start, end } = segment;
       await seekTo(video, start);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      resumeRecorder();
       await playWithFallback(video);
       await new Promise((resolve) => {
         // Watchdog: if playback stops advancing (tab throttled, decoder
@@ -213,7 +213,6 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
         }, 1000 / 30);
       });
       video.pause();
-      pauseRecorder();
       doneSeconds += end - start;
       onProgress?.(Math.min(1, doneSeconds / totalSeconds));
     }
@@ -230,7 +229,13 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress } = {}) {
       { fallback: null }
     ).then((b) => b ?? (chunks.length ? new Blob(chunks, { type: finalMime }) : null));
     audioCtx?.close().catch(() => {});
-    return blob && blob.size > 0 ? blob : null;
+    // Segments were planned and played but the recorder delivered nothing —
+    // that's a device/browser recording failure, not "nothing to stitch".
+    // Throwing (instead of returning null) lets the caller show its error
+    // toast; returning null here once made the progress bar reach 100% and
+    // then silently vanish with no reel and no explanation.
+    if (!blob || blob.size === 0) throw new Error("The recorder produced no output on this device");
+    return blob;
   } finally {
     for (const clip of loaded) {
       clip.video.pause();

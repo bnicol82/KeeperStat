@@ -3402,57 +3402,59 @@ export default function KeeperStat() {
           // it's already tracked and doesn't kick off a redundant fetch
           // that could race these uploads and clobber their results.
           setVideosByMatch((vb) => ({ ...vb, [record.id]: vb[record.id] || [] }));
-          let failures = 0;
-          Promise.allSettled(
-            clips.map((clip) =>
-              dataApi.uploadMatchVideo(activeKeeperId, record.id, clip)
-                .then((videoUrl) => dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl))
-                .then((videoRecord) => {
-                  setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
-                })
-            )
-          ).then((results) => {
-            failures = results.filter((r) => r.status === "rejected").length;
+
+          // Everything runs SEQUENTIALLY: clip uploads one at a time, then
+          // the reel build, then the reel upload. Launching two large
+          // uploads and a realtime video re-encode simultaneously
+          // overwhelmed phones — memory pressure killed uploads (clips
+          // going missing) and main-thread contention crackled the reel's
+          // audio capture.
+          (async () => {
+            let failures = 0;
+            for (const clip of clips) {
+              try {
+                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, clip);
+                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl);
+                setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+              } catch (err) {
+                failures++;
+                console.error("Failed to upload match recording", err);
+              }
+            }
             if (failures) {
-              results.filter((r) => r.status === "rejected").forEach((r) => console.error("Failed to upload match recording", r.reason));
               showError(
                 failures === clips.length
                   ? "Match saved, but the recorded video couldn't be uploaded."
                   : `Match saved, but ${failures} of ${clips.length} recorded clips couldn't be uploaded.`
               );
             }
-          });
 
-          // Big Saves / Penalty Saves tapped while filming become an
-          // auto-stitched highlight reel. Best-effort and background,
-          // like the clip uploads: reel assembly replays footage in real
-          // time, so the report screen shows progress meanwhile.
-          const highlightWindows = extractHighlightWindows(match.log);
-          if (Object.keys(highlightWindows).some((k) => clips[k])) {
+            // Big Saves / Penalty Saves tapped while filming become an
+            // auto-stitched highlight reel. Reel assembly replays footage
+            // in real time, so the report screen shows progress meanwhile.
+            const highlightWindows = extractHighlightWindows(match.log);
+            if (!Object.keys(highlightWindows).some((k) => clips[k])) return;
             setReelProgress((rp) => ({ ...rp, [record.id]: 0 }));
-            buildReel(clips, highlightWindows, {
-              onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
-            })
-              .then((reelBlob) => {
-                if (!reelBlob) return null;
-                return dataApi.uploadMatchVideo(activeKeeperId, record.id, reelBlob)
-                  .then((videoUrl) => dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, "highlights"))
-                  .then((videoRecord) => {
-                    setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
-                  });
-              })
-              .catch((err) => {
-                console.error("Failed to build/upload highlight reel", err);
-                showError("Match saved, but the highlight reel couldn't be created.");
-              })
-              .finally(() => {
-                setReelProgress((rp) => {
-                  const next = { ...rp };
-                  delete next[record.id];
-                  return next;
-                });
+            try {
+              const reelBlob = await buildReel(clips, highlightWindows, {
+                onProgress: (f) => setReelProgress((rp) => ({ ...rp, [record.id]: f })),
               });
-          }
+              if (reelBlob) {
+                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, reelBlob);
+                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, "highlights");
+                setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+              }
+            } catch (err) {
+              console.error("Failed to build/upload highlight reel", err);
+              showError("Match saved, but the highlight reel couldn't be created.");
+            } finally {
+              setReelProgress((rp) => {
+                const next = { ...rp };
+                delete next[record.id];
+                return next;
+              });
+            }
+          })();
         }
         go("report", record.n);
       })
