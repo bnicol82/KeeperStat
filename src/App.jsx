@@ -111,7 +111,7 @@ const MORE_ITEMS = [
 
 const TABS = [
   { key: "tracker", label: "Tracker", icon: "🎯" },
-  { key: "stats", label: "Stats", icon: "📊" },
+  { key: "stats", label: "Last Match", icon: "📋" },
   { key: "dashboard", label: "Home", icon: "🏠" },
   { key: "progress", label: "Progress", icon: "📈" },
   { key: "more", label: "More", icon: "•••" },
@@ -1513,47 +1513,6 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
   );
 };
 
-// ---------- 3. Match Stats (Live) ----------
-const StatRow = ({ icon, label, value, valueColor }) => (
-  <Card style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", marginBottom: 10 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <div className="icon-chip">{icon}</div>
-      <span style={{ fontSize: 15, fontWeight: 600, color: C.white }}>{label}</span>
-    </div>
-    <span style={{ fontFamily: fontCond, fontSize: 22, fontWeight: 700, color: valueColor || C.white }}>{value}</span>
-  </Card>
-);
-
-const MatchStats = ({ match, go, baseline }) => {
-  const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
-  const savePct = faced ? Math.round((match.saves / faced) * 100) : 0;
-  const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline);
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <Header title="Match Stats (Live)" left="‹" onLeft={() => go("tracker")} />
-      <div style={{ padding: "0 16px 16px", overflowY: "auto", flex: 1 }}>
-        <StatRow icon="⚽" label="Shots on Target Faced" value={faced} />
-        <StatRow icon="🧤" label="Saves" value={match.saves} />
-        <StatRow icon="🥅" label="Goals Against" value={match.goalsAgainst} />
-        <StatRow icon="📊" label="Save Percentage" value={`${savePct}%`} valueColor={C.green} />
-        <StatRow icon="🛡" label="Clean Sheet" value={match.goalsAgainst === 0 ? "Yes" : "No"} valueColor={match.goalsAgainst === 0 ? C.green : C.white} />
-        <Card style={{ textAlign: "center", padding: "18px 16px", marginTop: 4 }}>
-          <div style={{ fontFamily: fontCond, fontSize: 15, fontWeight: 700, letterSpacing: 1.5, color: C.gold }}>GK IMPACT SCORE</div>
-          <div style={{ fontFamily: fontCond, fontSize: 64, fontWeight: 800, color: C.green, lineHeight: 1.05, textShadow: `0 0 24px ${C.green}55` }}>{score}</div>
-          <div style={{ fontFamily: fontCond, fontSize: 20, fontWeight: 700, color: C.green, letterSpacing: 2 }}>{scoreWord(score)}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 10, color: C.grayDark }}>0</span>
-            <div className="groove-track">
-              <div style={{ width: `${score}%`, height: "100%", background: `linear-gradient(90deg, ${C.greenMid}, ${C.green})`, borderRadius: 4, transition: "width .5s", boxShadow: `0 0 10px ${C.green}66` }} />
-            </div>
-            <span style={{ fontSize: 10, color: C.grayDark }}>100</span>
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-};
-
 // ---------- 4. Coach Dashboard ----------
 const trendDelta = (cur, prev, unit = "", goodWhenPositive = true, neutral = false) => {
   const d = cur - prev;
@@ -1832,7 +1791,12 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
       </div>
     );
   }
-  const idx = Math.max(0, matches.findIndex((x) => x.n === matchId));
+  // Resolve via activeMatchN (which already falls back to the LATEST
+  // match when no matchId is given — e.g. the Last Match tab) rather than
+  // matchId directly: findIndex on a null matchId returns -1, and the old
+  // Math.max(0, -1) silently showed the FIRST match while the clips
+  // section showed the last one.
+  const idx = Math.max(0, matches.findIndex((x) => x.n === activeMatchN));
   const m = matches[idx] ?? matches[matches.length - 1];
   const realIdx = matches.findIndex((x) => x.n === m.n);
   const savePct = m.shotsFaced ? Math.round((m.saves / m.shotsFaced) * 100) : 0;
@@ -3652,7 +3616,10 @@ export default function KeeperStat() {
         recording={recording} onToggleRecording={toggleRecording} recordingError={recordingError} videoStream={videoStream} matchRecorder={matchRecorderRef.current}
       />
     ),
-    stats: <MatchStats match={match} go={go} baseline={baseline} />,
+    // The old "Match Stats (Live)" screen duplicated numbers already on
+    // the live tracker, so its tab now shows the LAST match's full report
+    // instead (matchId null → MatchReport falls back to the latest match).
+    stats: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={null} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} />,
     dashboard: <Dashboard go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)} />,
     parent: <ParentView go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,

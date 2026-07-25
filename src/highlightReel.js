@@ -18,21 +18,20 @@ import { pickMimeType } from "./videoRecorder.js";
 
 export const HIGHLIGHT_EVENT_TYPES = ["bigSave", "penaltySave"];
 
-// WebKit and Chromium disagree about what happens to a media element wired
-// into an audio graph via MediaElementAudioSourceNode:
-//   - Chromium truly REROUTES the element's audio — nothing reaches the
-//     speaker, and muting the element also silences the captured stream.
-//   - WebKit (all of iOS, plus desktop Safari) keeps playing the element
-//     out loud IN ADDITION to feeding the graph — but taps the audio for
-//     the graph BEFORE the mute applies, so muting the element silences
-//     the speaker without losing the capture.
-// So the correct behavior is inverted per engine: mute on WebKit (or the
-// reel build blasts the clips through the phone's speaker), never mute on
-// Chromium (or the reel goes silent). Exported for tests.
-export function isWebKitPlayback(ua = typeof navigator !== "undefined" ? navigator.userAgent : "") {
-  if (/iPhone|iPad|iPod/.test(ua)) return true; // every iOS browser is WebKit
-  return /Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR/.test(ua);
+// Extracts the [start, end] range of one audio channel as raw sample
+// frames, clamped to the channel's bounds. Exported for tests.
+export function sliceSegmentFrames(channelData, sampleRate, start, end) {
+  const from = Math.min(channelData.length, Math.max(0, Math.floor(start * sampleRate)));
+  const to = Math.min(channelData.length, Math.max(from, Math.floor(end * sampleRate)));
+  return channelData.slice(from, to);
 }
+
+// Decoding a clip means holding its entire uncompressed PCM in memory at
+// once (decodeAudioData has no range API) — fine for the minutes-long
+// clips Record Film produces, but a full-half recording would decode to
+// gigabytes and kill the tab. Clips past this size keep their video in the
+// reel with silent audio instead.
+const MAX_AUDIO_DECODE_BYTES = 200 * 1024 * 1024;
 
 // Turns a match's event log into per-clip time windows worth keeping:
 // [start, end] seconds around each highlight event, overlapping windows
@@ -194,11 +193,19 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
       loaded.push(clip);
       for (const [start, end] of windowsByClip[key]) {
         const clampedEnd = Math.min(end, clip.video.duration);
-        if (clampedEnd - start > 0.25) plan.push({ ...clip, start, end: clampedEnd });
+        if (clampedEnd - start > 0.25) plan.push({ ...clip, blob: clipBlobs[key], start, end: clampedEnd });
       }
     }
     if (!plan.length) return null;
     const totalSeconds = plan.reduce((a, s) => a + (s.end - s.start), 0);
+
+    // The clip videos exist only to supply FRAMES — always muted. Their
+    // audio comes from decoded buffers below, never from element playback:
+    // MediaElementAudioSourceNode is broken on iOS for blob-backed video
+    // (it feeds silence into the graph while the element blares through
+    // the speaker), which produced every audio bug this feature has had.
+    // Muted playback is also allowed everywhere without a gesture.
+    for (const clip of loaded) clip.video.muted = true;
 
     const canvas = document.createElement("canvas");
     canvas.width = plan[0].video.videoWidth || 1280;
@@ -206,11 +213,13 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
     const ctx = canvas.getContext("2d");
 
     // Audio can't ride along on canvas.captureStream() (video-only), so
-    // each clip's sound is routed through an AudioContext into a stream
-    // destination and merged in. The gesture-primed context (created
-    // inside the user's tap — see primeReelPlayback) is what makes this
-    // work on iOS; a self-created one here only starts outside iOS. If
-    // neither starts, the reel still builds — just silent.
+    // each highlight window's sound is cut from the clip's decoded audio
+    // track and scheduled into the graph as an AudioBufferSourceNode in
+    // sync with the muted video. The gesture-primed context (created
+    // inside the user's tap — see primeReelPlayback) is what allows a
+    // running context on iOS at all. If the context can't start or a clip
+    // can't decode, the reel still builds — just silent (or silent for
+    // that clip).
     let audioDest = null;
     try {
       audioCtx = primed?.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -220,21 +229,41 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
       await withTimeout(audioCtx.resume(), 800, { fallback: undefined });
       if (audioCtx.state !== "running") throw new Error(`AudioContext stuck in state '${audioCtx.state}'`);
       audioDest = audioCtx.createMediaStreamDestination();
-      for (const clip of loaded) audioCtx.createMediaElementSource(clip.video).connect(audioDest);
-      // See isWebKitPlayback: on WebKit the graph taps audio pre-mute, so
-      // muting stops the out-loud playback without losing capture; on
-      // Chromium the graph already reroutes (nothing audible) and muting
-      // would silence the capture instead.
-      if (isWebKitPlayback()) {
-        for (const clip of loaded) clip.video.muted = true;
-      }
     } catch (err) {
       console.error("Reel audio unavailable, building silent reel", err);
       audioDest = null;
-      // No audio graph means nothing can be captured anyway — mute the
-      // clips so the fallback build is quiet instead of playing every
-      // highlight out loud through the speaker while it assembles.
-      for (const clip of loaded) clip.video.muted = true;
+    }
+
+    if (audioDest) {
+      // One decode per distinct clip blob; the full decoded PCM is released
+      // as soon as its windows are sliced out, so peak memory is one clip.
+      const segmentsByBlob = new Map();
+      for (const segment of plan) {
+        if (!segmentsByBlob.has(segment.blob)) segmentsByBlob.set(segment.blob, []);
+        segmentsByBlob.get(segment.blob).push(segment);
+      }
+      for (const [blob, segments] of segmentsByBlob) {
+        if (blob.size > MAX_AUDIO_DECODE_BYTES) {
+          console.error("Clip too large to decode audio in memory — its reel segments will be silent");
+          continue;
+        }
+        try {
+          const encoded = await blob.arrayBuffer();
+          const decoded = await withTimeout(audioCtx.decodeAudioData(encoded), 60000, { error: "Decoding clip audio timed out" });
+          for (const segment of segments) {
+            const channels = [];
+            for (let c = 0; c < decoded.numberOfChannels; c++) {
+              channels.push(sliceSegmentFrames(decoded.getChannelData(c), decoded.sampleRate, segment.start, segment.end));
+            }
+            if (!channels[0]?.length) continue;
+            const buf = audioCtx.createBuffer(channels.length, channels[0].length, decoded.sampleRate);
+            channels.forEach((data, c) => buf.copyToChannel(data, c));
+            segment.audioBuffer = buf;
+          }
+        } catch (err) {
+          console.error("Couldn't decode a clip's audio — its reel segments will be silent", err);
+        }
+      }
     }
 
     const canvasStream = canvas.captureStream(30);
@@ -263,7 +292,17 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
       const { video, start, end } = segment;
       await seekTo(video, start);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // The segment's decoded audio starts alongside the (muted) video.
+      // Both run in real time from the same instant over a ~10s window, so
+      // drift stays imperceptible.
+      let bufSrc = null;
+      if (segment.audioBuffer && audioDest) {
+        bufSrc = audioCtx.createBufferSource();
+        bufSrc.buffer = segment.audioBuffer;
+        bufSrc.connect(audioDest);
+      }
       await playWithFallback(video);
+      bufSrc?.start();
       await new Promise((resolve) => {
         // Watchdog: if playback stops advancing (tab throttled, decoder
         // stall), end the segment rather than spinning at one progress
@@ -284,6 +323,11 @@ export async function buildReel(clipBlobs, windowsByClip, { onProgress, primed }
         }, 1000 / 30);
       });
       video.pause();
+      try {
+        bufSrc?.stop();
+      } catch {
+        // already ended naturally — buffer length matches the window
+      }
       doneSeconds += end - start;
       onProgress?.(Math.min(1, doneSeconds / totalSeconds));
     }

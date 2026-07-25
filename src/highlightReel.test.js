@@ -1,18 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { extractHighlightWindows, isWebKitPlayback } from "./highlightReel.js";
+import { extractHighlightWindows, sliceSegmentFrames } from "./highlightReel.js";
 
-describe("isWebKitPlayback", () => {
-  it("detects iOS devices regardless of browser (all iOS browsers are WebKit)", () => {
-    expect(isWebKitPlayback("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")).toBe(true);
-    expect(isWebKitPlayback("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.0.0 Mobile/15E148 Safari/604.1")).toBe(true); // Chrome on iOS
-    expect(isWebKitPlayback("Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")).toBe(true);
+describe("sliceSegmentFrames", () => {
+  const sampleRate = 10; // 10 samples per second keeps the math readable
+  const channel = Float32Array.from({ length: 100 }, (_, i) => i); // 10 seconds
+
+  it("cuts the requested window out of the channel data", () => {
+    const out = sliceSegmentFrames(channel, sampleRate, 2, 4); // 2s..4s
+    expect(out.length).toBe(20);
+    expect(out[0]).toBe(20);
+    expect(out[19]).toBe(39);
   });
 
-  it("detects desktop Safari but not Chromium-family browsers", () => {
-    expect(isWebKitPlayback("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15")).toBe(true);
-    expect(isWebKitPlayback("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).toBe(false);
-    expect(isWebKitPlayback("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0")).toBe(false);
-    expect(isWebKitPlayback("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36")).toBe(false);
+  it("clamps a window extending past the end of the clip", () => {
+    const out = sliceSegmentFrames(channel, sampleRate, 8, 15);
+    expect(out.length).toBe(20); // 8s..10s only
+    expect(out[0]).toBe(80);
+  });
+
+  it("clamps a negative start to the beginning", () => {
+    const out = sliceSegmentFrames(channel, sampleRate, -3, 1);
+    expect(out.length).toBe(10);
+    expect(out[0]).toBe(0);
+  });
+
+  it("returns an empty slice for a window entirely past the clip", () => {
+    expect(sliceSegmentFrames(channel, sampleRate, 20, 25).length).toBe(0);
   });
 });
 
