@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "./scoring.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, attackingBonus, ATTACKING_WEIGHTS, gde, toe, gmis } from "./scoring.js";
 
 describe("LEVELS", () => {
   it("has a baseline between 0 and 1 for every level", () => {
@@ -62,6 +62,41 @@ describe("impactScoreFromStats", () => {
   it("handles a 0-shots-faced match without dividing by zero", () => {
     expect(() => impactScoreFromStats(0, 0, 0, 0.65)).not.toThrow();
     expect(Number.isFinite(impactScoreFromStats(0, 0, 0, 0.65))).toBe(true);
+  });
+
+  it("scores identically with and without an empty attacking object (backward compatible)", () => {
+    expect(impactScoreFromStats(8, 6, 2, 0.65)).toBe(impactScoreFromStats(8, 6, 2, 0.65, {}));
+    expect(impactScoreFromStats(8, 6, 2, 0.65)).toBe(impactScoreFromStats(8, 6, 2, 0.65, { gkGoals: 0, assists: 0, hockeyAssists: 0 }));
+  });
+
+  it("raises the score for a keeper goal, an assist, and a hockey assist", () => {
+    const base = impactScoreFromStats(8, 6, 2, 0.65);
+    expect(impactScoreFromStats(8, 6, 2, 0.65, { gkGoals: 1 })).toBe(Math.min(99, base + ATTACKING_WEIGHTS.gkGoal));
+    expect(impactScoreFromStats(8, 6, 2, 0.65, { assists: 1 })).toBe(Math.min(99, base + ATTACKING_WEIGHTS.assist));
+    expect(impactScoreFromStats(8, 6, 2, 0.65, { hockeyAssists: 1 })).toBe(Math.min(99, base + ATTACKING_WEIGHTS.hockeyAssist));
+  });
+
+  it("caps the attacking bonus so attacking play can't fully mask a bad keeping day", () => {
+    // 3 goals + 3 assists would be +39 uncapped — must clamp to the cap.
+    const modest = impactScoreFromStats(8, 4, 4, 0.65);
+    const wild = impactScoreFromStats(8, 4, 4, 0.65, { gkGoals: 3, assists: 3, hockeyAssists: 3 });
+    expect(wild - modest).toBe(ATTACKING_WEIGHTS.cap);
+  });
+});
+
+describe("attackingBonus", () => {
+  it("sums the weighted contributions", () => {
+    expect(attackingBonus({ assists: 2, hockeyAssists: 1 })).toBe(5 + 5 + 3);
+    expect(attackingBonus({ gkGoals: 1, hockeyAssists: 2 })).toBe(8 + 3 + 3);
+  });
+
+  it("caps at the configured maximum", () => {
+    expect(attackingBonus({ gkGoals: 5 })).toBe(ATTACKING_WEIGHTS.cap);
+  });
+
+  it("is zero for missing or empty input", () => {
+    expect(attackingBonus()).toBe(0);
+    expect(attackingBonus({})).toBe(0);
   });
 });
 

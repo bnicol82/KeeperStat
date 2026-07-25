@@ -1220,6 +1220,9 @@ const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dis
             <OverlayStatButton icon="🥇" label={`Pen Sv ${match.penaltySaves}`} accent={C.gold} onClick={() => dispatch({ type: "penaltySave" })} />
             <OverlayStatButton icon="⭐" label={`Big Sv ${match.bigSaves}`} accent={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
             <OverlayStatButton icon="🎯" label={`Team Shot ${match.teamShotsOnGoal}`} accent={C.orange} onClick={() => dispatch({ type: "teamShotOnGoal" })} />
+            <OverlayStatButton icon="🧤" label={`GK Goal ${match.gkGoals}`} accent={C.gold} onClick={() => dispatch({ type: "gkGoal" })} />
+            <OverlayStatButton icon="🅰️" label={`Assist ${match.assists}`} accent={C.gold} onClick={() => dispatch({ type: "assist" })} />
+            <OverlayStatButton icon="🔁" label={`Hky Ast ${match.hockeyAssists}`} accent={C.gold} onClick={() => dispatch({ type: "hockeyAssist" })} />
             <OverlayStatButton icon="↩" label="Undo" accent={C.gray} onClick={() => dispatch({ type: "undo" })} />
           </div>
         )}
@@ -1302,7 +1305,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
   if (matchStatus === "ended") {
     const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
     const savePct = faced ? Math.round((match.saves / faced) * 100) : 0;
-    const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline);
+    const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline, { gkGoals: match.gkGoals, assists: match.assists, hockeyAssists: match.hockeyAssists });
     const win = match.ourGoals > match.goalsAgainst, loss = match.ourGoals < match.goalsAgainst;
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -1329,6 +1332,11 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("Distribution", `${match.distributionCompleted}/${match.distributionAttempted}`)}{cellBox("Claims", match.claims)}{cellBox("Punches", match.punches)}{cellBox("Errors", match.errors)}
           </div>
+          {(match.gkGoals > 0 || match.assists > 0 || match.hockeyAssists > 0) && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              {cellBox("GK Goals", match.gkGoals)}{cellBox("Assists", match.assists)}{cellBox("Hockey Assists", match.hockeyAssists)}
+            </div>
+          )}
           {(match.bigSaves > 0 || match.penaltySaves > 0) && (
             <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 600, textAlign: "center", marginTop: 10 }}>
               {match.bigSaves > 0 && `⭐ ${match.bigSaves} Big Save${match.bigSaves > 1 ? "s" : ""}`}
@@ -1469,6 +1477,9 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <SmallActionButton icon="🥇" label="Penalty Save" count={match.penaltySaves} color={C.gold} onClick={() => dispatch({ type: "penaltySave" })} />
           <SmallActionButton icon="⭐" label="Big Save" count={match.bigSaves} color={C.gold} onClick={() => dispatch({ type: "bigSave" })} />
           <SmallActionButton icon="🎯" label="Team Shot on Goal" count={match.teamShotsOnGoal} color={C.orange} onClick={() => dispatch({ type: "teamShotOnGoal" })} />
+          <SmallActionButton icon="🧤" label="GK Goal" count={match.gkGoals} color={C.gold} onClick={() => dispatch({ type: "gkGoal" })} />
+          <SmallActionButton icon="🅰️" label="Assist" count={match.assists} color={C.gold} onClick={() => dispatch({ type: "assist" })} />
+          <SmallActionButton icon="🔁" label="Hockey Assist" count={match.hockeyAssists} color={C.gold} onClick={() => dispatch({ type: "hockeyAssist" })} />
         </div>
 
         <Card style={{ marginBottom: 12 }}>
@@ -1538,7 +1549,7 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
       </div>
     );
   }
-  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline) }));
+  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists }) }));
   const last5 = scored.slice(-5);
   const prev5 = scored.slice(0, Math.max(scored.length - 5, 0));
   const avgOf = (arr) => (arr.length ? Math.round(arr.reduce((a, m) => a + m.score, 0) / arr.length) : 0);
@@ -1560,6 +1571,8 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
   const errorsL = last5.reduce((a, m) => a + m.errors, 0), errorsP = prev5.reduce((a, m) => a + m.errors, 0);
   const handlingL = last5.reduce((a, m) => a + m.claims + m.punches, 0), handlingP = prev5.reduce((a, m) => a + m.claims + m.punches, 0);
   const clutchL = last5.reduce((a, m) => a + m.bigSaves + m.penaltySaves, 0), clutchP = prev5.reduce((a, m) => a + m.bigSaves + m.penaltySaves, 0);
+  const contrib = (m) => (m.gkGoals || 0) + (m.assists || 0) + (m.hockeyAssists || 0);
+  const contribL = last5.reduce((a, m) => a + contrib(m), 0), contribP = prev5.reduce((a, m) => a + contrib(m), 0);
 
   const cell = (label, value, d) => (
     <Card style={{ flex: 1, padding: "12px 14px" }}>
@@ -1605,6 +1618,9 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
           {cell("Claims + Punches", handlingL, hasPrev ? trendDelta(handlingL, handlingP, "", true, true) : { text: "—", color: C.grayDark })}
           {cell("Big + Penalty Saves", clutchL, hasPrev ? trendDelta(clutchL, clutchP, "", true, true) : { text: "—", color: C.grayDark })}
         </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          {cell("Goal Contributions", contribL, hasPrev ? trendDelta(contribL, contribP, "", true, true) : { text: "—", color: C.grayDark })}
+        </div>
         <button onClick={() => go("training")} className="btn3d btn3d-outline" style={{ width: "100%", marginTop: 16, padding: 14, borderRadius: 12, color: C.orange, fontWeight: 700, fontSize: 14 }}>
           View Training Recommendations →
         </button>
@@ -1649,7 +1665,7 @@ const ParentView = ({ go, baseline, matches, activeKeeper }) => {
       </div>
     );
   }
-  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline) }));
+  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists }) }));
   const latest = scored[scored.length - 1];
   const word = scoreWord(latest.score);
   const last5 = scored.slice(-5), prev5 = scored.slice(0, Math.max(scored.length - 5, 0));
@@ -1703,7 +1719,7 @@ const Development = ({ go, baseline, matches, activeKeeper }) => {
       </div>
     );
   }
-  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline) }));
+  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists }) }));
   const latest = scored[scored.length - 1];
   const best = scored.reduce((a, m) => (m.score > a.score ? m : a), scored[0]);
   const totalSaves = scored.reduce((a, m) => a + m.saves, 0), totalShots = scored.reduce((a, m) => a + m.shotsFaced, 0);
@@ -1800,7 +1816,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const m = matches[idx] ?? matches[matches.length - 1];
   const realIdx = matches.findIndex((x) => x.n === m.n);
   const savePct = m.shotsFaced ? Math.round((m.saves / m.shotsFaced) * 100) : 0;
-  const score = impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline);
+  const score = impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists });
   const win = m.res.startsWith("W"), loss = m.res.startsWith("L");
   const badgeClass = win ? "win-badge" : loss ? "loss-badge" : "draw-badge";
   const gdeVal = gde(m.saves, m.shotsFaced);
@@ -1843,6 +1859,11 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("Penalty Saves", m.penaltySaves)}{cellBox("Big Saves", m.bigSaves)}{cellBox("Errors", m.errors)}
+          </div>
+          {/* Attacking contributions — the keeper's own goals (also counted
+              in the team total), assists, and hockey assists. */}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("GK Goals", m.gkGoals ?? 0)}{cellBox("Assists", m.assists ?? 0)}{cellBox("Hockey Assists", m.hockeyAssists ?? 0)}
           </div>
         </Card>
         {m.notes && (
@@ -2133,7 +2154,7 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
       </div>
     );
   }
-  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline) }));
+  const scored = matches.map((m) => ({ ...m, score: impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists }) }));
   const seasonAvg = Math.round(scored.reduce((a, m) => a + m.score, 0) / scored.length);
   const last5 = scored.slice(-5);
   const avgLast5 = Math.round(last5.reduce((a, m) => a + m.score, 0) / last5.length);
@@ -2151,6 +2172,9 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
   const totalPenaltySaves = scored.reduce((a, m) => a + m.penaltySaves, 0);
   const totalBigSaves = scored.reduce((a, m) => a + m.bigSaves, 0);
   const totalErrors = scored.reduce((a, m) => a + m.errors, 0);
+  const totalGkGoals = scored.reduce((a, m) => a + (m.gkGoals || 0), 0);
+  const totalAssists = scored.reduce((a, m) => a + (m.assists || 0), 0);
+  const totalHockeyAssists = scored.reduce((a, m) => a + (m.hockeyAssists || 0), 0);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Season Progress" left="‹" onLeft={() => go("dashboard")} />
@@ -2184,6 +2208,9 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("Penalty Saves", totalPenaltySaves)}{cellBox("Big Saves", totalBigSaves)}{cellBox("Errors", totalErrors)}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("GK Goals", totalGkGoals)}{cellBox("Assists", totalAssists)}{cellBox("Hockey Assists", totalHockeyAssists)}
           </div>
         </Card>
         <Card style={{ marginTop: 12, padding: 0, overflow: "hidden" }}>
@@ -2621,6 +2648,9 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         {field("Penalty Saves", "penaltySaves", "number")}
         {field("Big Saves", "bigSaves", "number")}
         {field("Errors", "errors", "number")}
+        {field("GK Goals", "gkGoals", "number")}
+        {field("Assists", "assists", "number")}
+        {field("Hockey Assists", "hockeyAssists", "number")}
       </div>
       <div style={{ marginTop: 8, marginBottom: 8 }}>
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Notes</div>
@@ -2904,6 +2934,7 @@ const emptyMatch = (opponent = "") => ({
   opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [],
   distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0,
   penaltySaves: 0, bigSaves: 0, errors: 0, notes: "", teamShotsOnGoal: 0,
+  gkGoals: 0, assists: 0, hockeyAssists: 0,
 });
 
 // Pure reducer for live-tracker actions, extracted from dispatch so the
@@ -2913,6 +2944,11 @@ function applyMatchAction(m, a) {
   if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
   if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
   if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
+  // The keeper's own goal: tracked separately (gkGoals) but still counted
+  // inside the team's total goals and shots on goal.
+  if (a.type === "gkGoal") return { ...m, gkGoals: m.gkGoals + 1, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "gkGoal", label: "GK Goal" }] };
+  if (a.type === "assist") return { ...m, assists: m.assists + 1, log: [...m.log, { t: "assist", label: "Assist" }] };
+  if (a.type === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists + 1, log: [...m.log, { t: "hockeyAssist", label: "Hockey Assist" }] };
   if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
   if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
   if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
@@ -2937,6 +2973,9 @@ function applyMatchAction(m, a) {
     if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
     if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
     if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
+    if (last.t === "gkGoal") return { ...m, gkGoals: m.gkGoals - 1, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
+    if (last.t === "assist") return { ...m, assists: m.assists - 1, log };
+    if (last.t === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists - 1, log };
     if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
     if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
     if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
@@ -3427,6 +3466,9 @@ export default function KeeperStat() {
       bigSaves: match.bigSaves,
       errors: match.errors,
       notes: match.notes || null,
+      gkGoals: match.gkGoals,
+      assists: match.assists,
+      hockeyAssists: match.hockeyAssists,
     };
     dataApi.createMatch(activeKeeperId, payload)
       .then((record) => {

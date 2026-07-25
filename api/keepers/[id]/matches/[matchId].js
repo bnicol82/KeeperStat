@@ -33,6 +33,9 @@ async function handler(req, res) {
     if (p.penaltySaves !== undefined && !validStatCount(p.penaltySaves)) errors.push("penaltySaves must be a non-negative integer (max 500)");
     if (p.bigSaves !== undefined && !validStatCount(p.bigSaves)) errors.push("bigSaves must be a non-negative integer (max 500)");
     if (p.errors !== undefined && !validStatCount(p.errors)) errors.push("errors must be a non-negative integer (max 500)");
+    if (p.gkGoals !== undefined && !validStatCount(p.gkGoals)) errors.push("gkGoals must be a non-negative integer (max 500)");
+    if (p.assists !== undefined && !validStatCount(p.assists)) errors.push("assists must be a non-negative integer (max 500)");
+    if (p.hockeyAssists !== undefined && !validStatCount(p.hockeyAssists)) errors.push("hockeyAssists must be a non-negative integer (max 500)");
     if (p.notes !== undefined && p.notes !== null && !validString(p.notes, { maxLength: 5000 })) errors.push("notes must be a string (max 5000 chars)");
     if (p.videoUrl !== undefined && p.videoUrl !== null && !validString(p.videoUrl, { maxLength: 2000 })) errors.push("videoUrl must be a string (max 2000 chars)");
     if (errors.length) return badRequest(res, errors.join("; "));
@@ -61,6 +64,9 @@ async function handler(req, res) {
       errors: p.errors ?? existing.errors,
       notes: p.notes !== undefined ? p.notes : existing.notes,
       video_url: p.videoUrl !== undefined ? p.videoUrl : existing.video_url,
+      gk_goals: p.gkGoals ?? existing.gk_goals,
+      assists: p.assists ?? existing.assists,
+      hockey_assists: p.hockeyAssists ?? existing.hockey_assists,
     };
 
     let row;
@@ -83,7 +89,10 @@ async function handler(req, res) {
           big_saves = ${next.big_saves},
           errors = ${next.errors},
           notes = ${next.notes},
-          video_url = ${next.video_url}
+          video_url = ${next.video_url},
+          gk_goals = ${next.gk_goals},
+          assists = ${next.assists},
+          hockey_assists = ${next.hockey_assists}
         WHERE id = ${matchId} AND keeper_id = ${id}
         RETURNING *
       `;
@@ -113,7 +122,10 @@ async function handler(req, res) {
             penalty_saves = ${next.penalty_saves},
             big_saves = ${next.big_saves},
             errors = ${next.errors},
-            notes = ${next.notes}
+            notes = ${next.notes},
+            gk_goals = ${next.gk_goals},
+            assists = ${next.assists},
+            hockey_assists = ${next.hockey_assists}
           WHERE id = ${matchId} AND keeper_id = ${id}
           RETURNING *
         `;

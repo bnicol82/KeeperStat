@@ -29,7 +29,8 @@ async function handler(req, res) {
 
   const rows = await sql`
     SELECT k.id AS keeper_id, k.name, k.team, k.level,
-           m.shots_faced, m.saves, m.goals_against
+           m.shots_faced, m.saves, m.goals_against,
+           m.gk_goals, m.assists, m.hockey_assists
     FROM keepers k
     JOIN matches m ON m.keeper_id = k.id
     WHERE k.is_public = true
@@ -47,7 +48,13 @@ async function handler(req, res) {
   for (const [keeperId, k] of byKeeper) {
     if (k.matches.length < MIN_MATCHES) continue;
     const baseline = LEVELS[k.level]?.baseline ?? LEVELS.youth.baseline;
-    const scores = k.matches.map((m) => impactScoreFromStats(m.shots_faced, m.saves, m.goals_against, baseline));
+    const scores = k.matches.map((m) =>
+      impactScoreFromStats(m.shots_faced, m.saves, m.goals_against, baseline, {
+        gkGoals: m.gk_goals,
+        assists: m.assists,
+        hockeyAssists: m.hockey_assists,
+      })
+    );
     const avgScore = Math.round(scores.reduce((a, s) => a + s, 0) / scores.length);
     rankings.push({
       id: keeperId,

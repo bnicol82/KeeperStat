@@ -21,13 +21,30 @@ export const goalsPrevented = (shotsFaced, goalsAgainst, baseline) => {
   return expectedGoalsAgainst - goalsAgainst;
 };
 
+// Attacking-contribution bonus: the keeper's own goals, assists, and
+// hockey assists (the pass before the assist) add to the Impact Score —
+// a keeper who scores or creates a goal changed the match beyond their
+// keeping. Capped so a great attacking day can lift a score but never
+// fully mask a bad day between the posts.
+export const ATTACKING_WEIGHTS = { gkGoal: 8, assist: 5, hockeyAssist: 3, cap: 15 };
+
+export const attackingBonus = ({ gkGoals = 0, assists = 0, hockeyAssists = 0 } = {}) =>
+  Math.min(
+    ATTACKING_WEIGHTS.cap,
+    gkGoals * ATTACKING_WEIGHTS.gkGoal + assists * ATTACKING_WEIGHTS.assist + hockeyAssists * ATTACKING_WEIGHTS.hockeyAssist
+  );
+
 // Converts Goals Prevented into the 0–100 GK Impact Score shown throughout
-// the app: 50 is "performed exactly at the level-of-play baseline."
-export const impactScoreFromStats = (shotsFaced, saves, goalsAgainst, baseline) => {
+// the app: 50 is "performed exactly at the level-of-play baseline." The
+// optional attacking object (gkGoals/assists/hockeyAssists) is additive and
+// defaults to zero, so callers without attacking data get the same score
+// as before those stats existed.
+export const impactScoreFromStats = (shotsFaced, saves, goalsAgainst, baseline, attacking) => {
   const gp = goalsPrevented(shotsFaced, goalsAgainst, baseline);
   let s = 50 + gp * 10;
   if (goalsAgainst === 0 && shotsFaced > 0) s += 5; // clean sheet bonus
   s += Math.min(shotsFaced * 0.5, 6); // small reward for workload/volume
+  s += attackingBonus(attacking);
   return Math.round(Math.min(99, Math.max(5, s)));
 };
 
