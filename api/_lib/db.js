@@ -73,6 +73,9 @@ export function matchToJson(row) {
     errors: row.errors,
     notes: row.notes,
     videoUrl: row.video_url,
+    gkGoals: row.gk_goals,
+    assists: row.assists,
+    hockeyAssists: row.hockey_assists,
   };
 }
 

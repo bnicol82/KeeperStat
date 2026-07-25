@@ -16,10 +16,12 @@ const SAMPLE_MATCHES = [
   { opp: "Ironbridge FC", saves: 4, shotsFaced: 5, ga: 1, res: "D 1-1", goalsScored: 1, teamShotsOnGoal: 6, minutesPlayed: 70 },
   { opp: "Redhill Rangers", saves: 5, shotsFaced: 5, ga: 0, res: "W 2-0", goalsScored: 2, teamShotsOnGoal: 7, minutesPlayed: 70 },
   { opp: "Southport Town", saves: 4, shotsFaced: 6, ga: 2, res: "W 3-2", goalsScored: 3, teamShotsOnGoal: 8, minutesPlayed: 70 },
-  { opp: "River City FC", saves: 5, shotsFaced: 7, ga: 0, res: "W 1-0", goalsScored: 1, teamShotsOnGoal: 9, minutesPlayed: 70 },
+  // The last demo match shows off attacking contributions: a rare keeper
+  // goal (a last-minute corner) plus an assist on the build-up.
+  { opp: "River City FC", saves: 5, shotsFaced: 7, ga: 0, res: "W 1-0", goalsScored: 1, teamShotsOnGoal: 9, minutesPlayed: 70, gkGoals: 1, assists: 1, hockeyAssists: 0 },
 ];
 
-const detailDefaults = { distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0, penaltySaves: 0, bigSaves: 0, errors: 0, notes: null, videoUrl: null };
+const detailDefaults = { distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0, penaltySaves: 0, bigSaves: 0, errors: 0, notes: null, videoUrl: null, gkGoals: 0, assists: 0, hockeyAssists: 0 };
 
 // Fresh state per call, so re-entering Demo App always starts clean.
 export function createDemoApi() {
