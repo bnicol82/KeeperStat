@@ -6,6 +6,7 @@ import { parseScheduleText } from "./scheduleImport.js";
 import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
 import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback } from "./highlightReel.js";
+import { startAnchor, elapsedMs, pauseAnchor, resumeAnchor, formatClock, anchorFromClock } from "./matchClock.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -997,9 +998,37 @@ const CALIBRATION_STEPS = {
 };
 const CALIBRATION_ORDER = ["keeper", "team", "opponent"];
 
+// Tracks the *visual* viewport — the part of the page actually on screen once
+// the user pinch-zooms. iOS anchors position:fixed elements to the layout
+// viewport instead, so a zoomed-in recording overlay pushed all of its
+// controls off screen until the user zoomed back out. Reading the visual
+// viewport lets the chrome follow what the user can actually see.
+const useVisualViewport = () => {
+  const read = () => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return { offsetLeft: 0, offsetTop: 0, width: typeof window !== "undefined" ? window.innerWidth : 0, height: typeof window !== "undefined" ? window.innerHeight : 0, scale: 1 };
+    return { offsetLeft: vv.offsetLeft, offsetTop: vv.offsetTop, width: vv.width, height: vv.height, scale: vv.scale || 1 };
+  };
+  const [viewport, setViewport] = useState(read);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => setViewport(read());
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
+  return viewport;
+};
+
 const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dispatch, clockPaused, onToggleClockPause, onToggleRecording, onEndMatch }) => {
   const videoRef = useRef(null);
   const [showMore, setShowMore] = useState(false);
+  const viewport = useVisualViewport();
 
   // Player/ball tracking (TensorFlow.js COCO-SSD). Best-effort: if the model
   // can't load (slow connection, no WebGL, etc), recording just proceeds
@@ -1129,6 +1158,21 @@ const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dis
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", cursor: calibrationStep !== "done" ? "crosshair" : "default" }}
       />
 
+      {/* Controls live in their own layer sized to the *visible* region and
+          counter-scaled by the zoom factor. Without this, pinch-zooming on iOS
+          left the buttons stranded outside the visible area (fixed elements
+          anchor to the layout viewport), and they'd balloon with the zoom. */}
+      <div
+        className="overlay-chrome"
+        style={{
+          position: "absolute", top: 0, left: 0,
+          width: viewport.width * viewport.scale,
+          height: viewport.height * viewport.scale,
+          transform: `translate(${viewport.offsetLeft}px, ${viewport.offsetTop}px) scale(${1 / viewport.scale})`,
+          transformOrigin: "top left",
+        }}
+      >
+
       <div
         style={{
           position: "absolute", top: 0, left: 0, right: 0,
@@ -1223,6 +1267,7 @@ const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dis
             <OverlayStatButton icon="🧤" label={`GK Goal ${match.gkGoals}`} accent={C.gold} onClick={() => dispatch({ type: "gkGoal" })} />
             <OverlayStatButton icon="🅰️" label={`Assist ${match.assists}`} accent={C.gold} onClick={() => dispatch({ type: "assist" })} />
             <OverlayStatButton icon="🔁" label={`Hky Ast ${match.hockeyAssists}`} accent={C.gold} onClick={() => dispatch({ type: "hockeyAssist" })} />
+            <OverlayStatButton icon="🧹" label={`Sweep ${match.sweeps}`} accent={C.blue} onClick={() => dispatch({ type: "sweep" })} />
             <OverlayStatButton icon="↩" label="Undo" accent={C.gray} onClick={() => dispatch({ type: "undo" })} />
           </div>
         )}
@@ -1256,6 +1301,7 @@ const RecordingOverlay = ({ videoStream, matchRecorder, match, activeKeeper, dis
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
@@ -1335,6 +1381,11 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           {(match.gkGoals > 0 || match.assists > 0 || match.hockeyAssists > 0) && (
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               {cellBox("GK Goals", match.gkGoals)}{cellBox("Assists", match.assists)}{cellBox("Hockey Assists", match.hockeyAssists)}
+            </div>
+          )}
+          {match.sweeps > 0 && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              {cellBox("Sweeps / Smothers", match.sweeps)}
             </div>
           )}
           {(match.bigSaves > 0 || match.penaltySaves > 0) && (
@@ -1480,6 +1531,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <SmallActionButton icon="🧤" label="GK Goal" count={match.gkGoals} color={C.gold} onClick={() => dispatch({ type: "gkGoal" })} />
           <SmallActionButton icon="🅰️" label="Assist" count={match.assists} color={C.gold} onClick={() => dispatch({ type: "assist" })} />
           <SmallActionButton icon="🔁" label="Hockey Assist" count={match.hockeyAssists} color={C.gold} onClick={() => dispatch({ type: "hockeyAssist" })} />
+          <SmallActionButton icon="🧹" label="Sweep / Smother" count={match.sweeps} color={C.blue} onClick={() => dispatch({ type: "sweep" })} />
         </div>
 
         <Card style={{ marginBottom: 12 }}>
@@ -1865,6 +1917,9 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("GK Goals", m.gkGoals ?? 0)}{cellBox("Assists", m.assists ?? 0)}{cellBox("Hockey Assists", m.hockeyAssists ?? 0)}
           </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("Sweeps / Smothers", m.sweeps ?? 0)}
+          </div>
         </Card>
         {m.notes && (
           <Card style={{ marginTop: 12 }}>
@@ -2175,6 +2230,7 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
   const totalGkGoals = scored.reduce((a, m) => a + (m.gkGoals || 0), 0);
   const totalAssists = scored.reduce((a, m) => a + (m.assists || 0), 0);
   const totalHockeyAssists = scored.reduce((a, m) => a + (m.hockeyAssists || 0), 0);
+  const totalSweeps = scored.reduce((a, m) => a + (m.sweeps || 0), 0);
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Header title="Season Progress" left="‹" onLeft={() => go("dashboard")} />
@@ -2211,6 +2267,9 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             {cellBox("GK Goals", totalGkGoals)}{cellBox("Assists", totalAssists)}{cellBox("Hockey Assists", totalHockeyAssists)}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {cellBox("Sweeps / Smothers", totalSweeps)}
           </div>
         </Card>
         <Card style={{ marginTop: 12, padding: 0, overflow: "hidden" }}>
@@ -2651,6 +2710,7 @@ const MatchHistoryRow = ({ match, onSave, onDelete }) => {
         {field("GK Goals", "gkGoals", "number")}
         {field("Assists", "assists", "number")}
         {field("Hockey Assists", "hockeyAssists", "number")}
+        {field("Sweeps / Smothers", "sweeps", "number")}
       </div>
       <div style={{ marginTop: 8, marginBottom: 8 }}>
         <div style={{ fontSize: 11, color: C.grayDark, marginBottom: 4 }}>Notes</div>
@@ -2934,7 +2994,7 @@ const emptyMatch = (opponent = "") => ({
   opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [],
   distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0,
   penaltySaves: 0, bigSaves: 0, errors: 0, notes: "", teamShotsOnGoal: 0,
-  gkGoals: 0, assists: 0, hockeyAssists: 0,
+  gkGoals: 0, assists: 0, hockeyAssists: 0, sweeps: 0,
 });
 
 // Pure reducer for live-tracker actions, extracted from dispatch so the
@@ -2949,6 +3009,7 @@ function applyMatchAction(m, a) {
   if (a.type === "gkGoal") return { ...m, gkGoals: m.gkGoals + 1, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "gkGoal", label: "GK Goal" }] };
   if (a.type === "assist") return { ...m, assists: m.assists + 1, log: [...m.log, { t: "assist", label: "Assist" }] };
   if (a.type === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists + 1, log: [...m.log, { t: "hockeyAssist", label: "Hockey Assist" }] };
+  if (a.type === "sweep") return { ...m, sweeps: m.sweeps + 1, log: [...m.log, { t: "sweep", label: "Sweep / Smother" }] };
   if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
   if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
   if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
@@ -2976,6 +3037,7 @@ function applyMatchAction(m, a) {
     if (last.t === "gkGoal") return { ...m, gkGoals: m.gkGoals - 1, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
     if (last.t === "assist") return { ...m, assists: m.assists - 1, log };
     if (last.t === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists - 1, log };
+    if (last.t === "sweep") return { ...m, sweeps: m.sweeps - 1, log };
     if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
     if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
     if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
@@ -2995,6 +3057,9 @@ export default function KeeperStat() {
   const [matchStatus, setMatchStatus] = useState("idle"); // idle | live | ended
   const [match, setMatch] = useState(() => emptyMatch());
   const [clockPaused, setClockPaused] = useState(false);
+  // Wall-clock anchor behind match.clock — see src/matchClock.js for why the
+  // timer can't just count setInterval ticks.
+  const clockAnchorRef = useRef(startAnchor(Date.now()));
   const [recording, setRecording] = useState(false);
   const [recordingError, setRecordingError] = useState(null);
   const [videoStream, setVideoStream] = useState(null);
@@ -3359,27 +3424,49 @@ export default function KeeperStat() {
     });
   };
 
-  // live clock tick — only while a match is actually in progress and not paused
+  // Live clock — only while a match is in progress and not paused. The value
+  // is *derived* from wall time on every read rather than accumulated per
+  // tick, so throttled or entirely suspended timers (backgrounded tab, locked
+  // screen) cost no match time: the next read simply reports the truth.
   useEffect(() => {
     if (matchStatus !== "live" || clockPaused) return;
-    const id = setInterval(() => {
-      setMatch((m) => {
-        const [mm, ss] = m.clock.split(":").map(Number);
-        const t = mm * 60 + ss + 1;
-        return { ...m, clock: `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}` };
-      });
-    }, 1000);
-    return () => clearInterval(id);
+    const sync = () => {
+      const next = formatClock(elapsedMs(clockAnchorRef.current, Date.now()));
+      setMatch((m) => (m.clock === next ? m : { ...m, clock: next }));
+    };
+    sync();
+    // Twice a second so the displayed second flips promptly; the reads are
+    // cheap and setMatch is skipped whenever the string hasn't changed.
+    const id = setInterval(sync, 500);
+    // Waking from a locked screen fires these before the interval next runs,
+    // so the clock snaps to the correct time instead of showing a stale one.
+    document.addEventListener("visibilitychange", sync);
+    window.addEventListener("pageshow", sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("pageshow", sync);
+      window.removeEventListener("focus", sync);
+    };
   }, [matchStatus, clockPaused]);
 
   const startMatch = (opponent) => {
     setMatch(emptyMatch(opponent));
+    clockAnchorRef.current = startAnchor(Date.now());
     setMatchStatus("live");
     setClockPaused(false);
     recordedVideoClipsRef.current = [];
     setRecordingError(null);
   };
-  const toggleClockPause = () => setClockPaused((p) => !p);
+  const toggleClockPause = () =>
+    setClockPaused((paused) => {
+      const now = Date.now();
+      clockAnchorRef.current = paused
+        ? resumeAnchor(clockAnchorRef.current, now)
+        : pauseAnchor(clockAnchorRef.current, now);
+      return !paused;
+    });
   // Camera/mic access is opt-in per match rather than automatic — most
   // matches won't want a permission prompt, and the recording (if any) is
   // stopped the moment the match ends since there's nothing left to film.
@@ -3414,9 +3501,16 @@ export default function KeeperStat() {
       setRecording(false);
       setVideoStream(null);
     }
+    clockAnchorRef.current = pauseAnchor(clockAnchorRef.current, Date.now());
     setMatchStatus("ended");
   };
-  const resumeMatch = () => setMatchStatus("live");
+  // Resuming picks up from the clock as displayed — the time spent sitting on
+  // the match-ended summary isn't match time.
+  const resumeMatch = () => {
+    clockAnchorRef.current = resumeAnchor(anchorFromClock(match.clock), Date.now());
+    setClockPaused(false);
+    setMatchStatus("live");
+  };
   const discardMatch = () => {
     if (recording) {
       recordingStartedAtRef.current = null;
@@ -3469,6 +3563,7 @@ export default function KeeperStat() {
       gkGoals: match.gkGoals,
       assists: match.assists,
       hockeyAssists: match.hockeyAssists,
+      sweeps: match.sweeps,
     };
     dataApi.createMatch(activeKeeperId, payload)
       .then((record) => {
@@ -3870,6 +3965,10 @@ export default function KeeperStat() {
         }
         .settings-row-label { font-size: 15px; font-weight: 600; color: #fff; }
         .settings-row-desc { font-size: 12px; color: #8a8a8a; margin-top: 2px; }
+
+        /* ---- recording overlay chrome (tracks the visual viewport) ---- */
+        .overlay-chrome { pointer-events: none; }
+        .overlay-chrome > * { pointer-events: auto; }
 
         /* ---- bottom nav ---- */
         .navbar {

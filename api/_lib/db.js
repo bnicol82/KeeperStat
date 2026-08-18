@@ -76,6 +76,7 @@ export function matchToJson(row) {
     gkGoals: row.gk_goals,
     assists: row.assists,
     hockeyAssists: row.hockey_assists,
+    sweeps: row.sweeps,
   };
 }
 

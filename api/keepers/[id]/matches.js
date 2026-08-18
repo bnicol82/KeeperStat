@@ -44,6 +44,7 @@ async function handler(req, res) {
     if (!validStatCount(m.gkGoals)) errors.push("gkGoals must be a non-negative integer (max 500)");
     if (!validStatCount(m.assists)) errors.push("assists must be a non-negative integer (max 500)");
     if (!validStatCount(m.hockeyAssists)) errors.push("hockeyAssists must be a non-negative integer (max 500)");
+    if (!validStatCount(m.sweeps)) errors.push("sweeps must be a non-negative integer (max 500)");
     if (m.notes !== undefined && m.notes !== null && !validString(m.notes, { maxLength: 5000 })) errors.push("notes must be a string (max 5000 chars)");
     if (errors.length) return badRequest(res, errors.join("; "));
 
@@ -54,12 +55,12 @@ async function handler(req, res) {
       INSERT INTO matches (
         keeper_id, match_number, opponent, saves, shots_faced, goals_against, result, goals_scored, team_shots_on_goal, minutes_played,
         distribution_completed, distribution_attempted, claims, punches, penalty_saves, big_saves, errors, notes,
-        gk_goals, assists, hockey_assists
+        gk_goals, assists, hockey_assists, sweeps
       )
       VALUES (
         ${id}, ${next_n}, ${m.opp ?? "Unknown Opponent"}, ${m.saves ?? 0}, ${m.shotsFaced ?? 0}, ${m.ga ?? 0}, ${m.res}, ${m.goalsScored ?? 0}, ${m.teamShotsOnGoal ?? null}, ${m.minutesPlayed ?? null},
         ${m.distributionCompleted ?? 0}, ${m.distributionAttempted ?? 0}, ${m.claims ?? 0}, ${m.punches ?? 0}, ${m.penaltySaves ?? 0}, ${m.bigSaves ?? 0}, ${m.errors ?? 0}, ${m.notes ?? null},
-        ${m.gkGoals ?? 0}, ${m.assists ?? 0}, ${m.hockeyAssists ?? 0}
+        ${m.gkGoals ?? 0}, ${m.assists ?? 0}, ${m.hockeyAssists ?? 0}, ${m.sweeps ?? 0}
       )
       RETURNING *
     `;
