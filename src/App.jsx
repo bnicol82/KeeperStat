@@ -7,7 +7,8 @@ import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
 import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback } from "./highlightReel.js";
 import { startAnchor, elapsedMs, pauseAnchor, resumeAnchor, formatClock, anchorFromClock } from "./matchClock.js";
-import { LEVELS, goalsPrevented, impactScoreFromStats, gde, toe, gmis } from "../shared/scoring.js";
+import { emptyMatch, applyMatchAction } from "./matchActions.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, savePercent, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
 /* ============================================================
@@ -61,7 +62,7 @@ const trainingFocusCategory = (matches) => {
   if (!matches.length) return null;
   const totalShots = matches.reduce((a, m) => a + m.shotsFaced, 0);
   const totalSaves = matches.reduce((a, m) => a + m.saves, 0);
-  const savePct = totalShots ? (totalSaves / totalShots) * 100 : 0;
+  const savePct = savePercent(totalSaves, totalShots);
   const csRate = matches.filter((m) => m.ga === 0).length / matches.length;
   const errorsPerMatch = matches.reduce((a, m) => a + m.errors, 0) / matches.length;
   const totalDistAtt = matches.reduce((a, m) => a + m.distributionAttempted, 0);
@@ -1349,8 +1350,8 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
   }
 
   if (matchStatus === "ended") {
-    const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
-    const savePct = faced ? Math.round((match.saves / faced) * 100) : 0;
+    const faced = match.shotsFaced;
+    const savePct = savePercent(match.saves, faced);
     const score = impactScoreFromStats(faced, match.saves, match.goalsAgainst, baseline, { gkGoals: match.gkGoals, assists: match.assists, hockeyAssists: match.hockeyAssists });
     const win = match.ourGoals > match.goalsAgainst, loss = match.ourGoals < match.goalsAgainst;
     return (
@@ -1507,7 +1508,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           </div>
         </Card>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          {cellBox("Saves", match.saves)}{cellBox("Shots Faced", match.shotsFaced)}{cellBox("Goals Against", match.goalsAgainst)}{cellBox("Save %", `${match.shotsFaced ? Math.round((match.saves / match.shotsFaced) * 100) : 0}%`)}
+          {cellBox("Saves", match.saves)}{cellBox("Shots Faced", match.shotsFaced)}{cellBox("Goals Against", match.goalsAgainst)}{cellBox("Save %", `${savePercent(match.saves, match.shotsFaced)}%`)}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 12, padding: "14px 0 10px", minHeight: 210 }}>
           <BigButton accent="#4CAF50" icon="🧤" lines={"SAVE"} onClick={() => dispatch({ type: "save" })} />
@@ -1516,7 +1517,7 @@ const Tracker = ({ match, dispatch, go, activeKeeper, onOpenKeeperSwitch, matchS
           <BigButton accent={C.orange} icon="⚽" lines={"GOAL\nFOR"} onClick={() => dispatch({ type: "goalFor" })} />
         </div>
         <div style={{ fontSize: 11.5, color: C.grayDark, lineHeight: 1.4, marginBottom: 4, padding: "0 2px" }}>
-          Each shot gets exactly one tap: SAVE credits both a save and a shot faced. SHOT ON TARGET is only for a shot faced that wasn't saved (post, deflected out, blocked) — tapping it instead of SAVE will lower Save %.
+          Each button counts one thing. SHOT ON TARGET for every shot heading between the posts; SAVE for every stop you make, including a cross you claim — those aren't shots on goal, so SAVE doesn't add one. A shot you save is two taps; a goal against counts its own shot on target.
         </div>
 
         <div style={{ fontSize: 11, fontWeight: 700, color: C.gray, letterSpacing: 1, margin: "6px 0 8px" }}>MORE ACTIONS</div>
@@ -1610,8 +1611,8 @@ const Dashboard = ({ go, baseline, matches, activeKeeper, onOpenKeeperSwitch }) 
 
   const savesL = last5.reduce((a, m) => a + m.saves, 0), shotsL = last5.reduce((a, m) => a + m.shotsFaced, 0);
   const savesP = prev5.reduce((a, m) => a + m.saves, 0), shotsP = prev5.reduce((a, m) => a + m.shotsFaced, 0);
-  const savePct = shotsL ? Math.round((savesL / shotsL) * 100) : 0;
-  const savePctPrev = shotsP ? Math.round((savesP / shotsP) * 100) : 0;
+  const savePct = savePercent(savesL, shotsL);
+  const savePctPrev = savePercent(savesP, shotsP);
 
   const ga = last5.reduce((a, m) => a + m.ga, 0), gaPrev = prev5.reduce((a, m) => a + m.ga, 0);
   const cs = last5.filter((m) => m.ga === 0).length, csPrev = prev5.filter((m) => m.ga === 0).length;
@@ -1775,7 +1776,7 @@ const Development = ({ go, baseline, matches, activeKeeper }) => {
   const latest = scored[scored.length - 1];
   const best = scored.reduce((a, m) => (m.score > a.score ? m : a), scored[0]);
   const totalSaves = scored.reduce((a, m) => a + m.saves, 0), totalShots = scored.reduce((a, m) => a + m.shotsFaced, 0);
-  const savePctSeason = totalShots ? Math.round((totalSaves / totalShots) * 100) : 0;
+  const savePctSeason = savePercent(totalSaves, totalShots);
   const csRate = scored.filter((m) => m.ga === 0).length / scored.length;
   const aggGP = scored.reduce((a, m) => a + goalsPrevented(m.shotsFaced, m.ga, baseline), 0);
   const strengths = strengthTags(savePctSeason, csRate, aggGP);
@@ -1867,7 +1868,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const idx = Math.max(0, matches.findIndex((x) => x.n === activeMatchN));
   const m = matches[idx] ?? matches[matches.length - 1];
   const realIdx = matches.findIndex((x) => x.n === m.n);
-  const savePct = m.shotsFaced ? Math.round((m.saves / m.shotsFaced) * 100) : 0;
+  const savePct = savePercent(m.saves, m.shotsFaced);
   const score = impactScoreFromStats(m.shotsFaced, m.saves, m.ga, baseline, { gkGoals: m.gkGoals, assists: m.assists, hockeyAssists: m.hockeyAssists });
   const win = m.res.startsWith("W"), loss = m.res.startsWith("L");
   const badgeClass = win ? "win-badge" : loss ? "loss-badge" : "draw-badge";
@@ -2216,7 +2217,7 @@ const Progress = ({ go, baseline, matches, activeKeeper }) => {
   const deltaVsSeason = avgLast5 - seasonAvg;
   const deltaText = deltaVsSeason === 0 ? "— even" : `${deltaVsSeason > 0 ? "↗ +" : "↘ −"}${Math.abs(deltaVsSeason)}`;
   const totalSaves = scored.reduce((a, m) => a + m.saves, 0), totalShots = scored.reduce((a, m) => a + m.shotsFaced, 0);
-  const avgSavePct = totalShots ? Math.round((totalSaves / totalShots) * 100) : 0;
+  const avgSavePct = savePercent(totalSaves, totalShots);
   const totalCS = scored.filter((m) => m.ga === 0).length;
   const totalGA = scored.reduce((a, m) => a + m.ga, 0);
   const totalDistComp = scored.reduce((a, m) => a + m.distributionCompleted, 0);
@@ -2990,65 +2991,6 @@ const Settings = ({
 
 /* ============================================================ APP */
 
-const emptyMatch = (opponent = "") => ({
-  opponent, ourGoals: 0, goalsAgainst: 0, saves: 0, shotsFaced: 0, clock: "00:00", log: [],
-  distributionCompleted: 0, distributionAttempted: 0, claims: 0, punches: 0,
-  penaltySaves: 0, bigSaves: 0, errors: 0, notes: "", teamShotsOnGoal: 0,
-  gkGoals: 0, assists: 0, hockeyAssists: 0, sweeps: 0,
-});
-
-// Pure reducer for live-tracker actions, extracted from dispatch so the
-// dispatch wrapper has a single point to stamp new log entries with
-// recording metadata (see dispatch in KeeperStat below).
-function applyMatchAction(m, a) {
-  if (a.type === "save") return { ...m, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "save", label: "Save" }] };
-  if (a.type === "goal") return { ...m, goalsAgainst: m.goalsAgainst + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "goal", label: "Goal Against" }] };
-  if (a.type === "goalFor") return { ...m, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "goalFor", label: "Goal For" }] };
-  // The keeper's own goal: tracked separately (gkGoals) but still counted
-  // inside the team's total goals and shots on goal.
-  if (a.type === "gkGoal") return { ...m, gkGoals: m.gkGoals + 1, ourGoals: m.ourGoals + 1, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "gkGoal", label: "GK Goal" }] };
-  if (a.type === "assist") return { ...m, assists: m.assists + 1, log: [...m.log, { t: "assist", label: "Assist" }] };
-  if (a.type === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists + 1, log: [...m.log, { t: "hockeyAssist", label: "Hockey Assist" }] };
-  if (a.type === "sweep") return { ...m, sweeps: m.sweeps + 1, log: [...m.log, { t: "sweep", label: "Sweep / Smother" }] };
-  if (a.type === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal + 1, log: [...m.log, { t: "teamShotOnGoal", label: "Team Shot on Goal" }] };
-  if (a.type === "shot") return { ...m, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "shot", label: "Shot on Target Faced" }] };
-  if (a.type === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted + 1, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionComplete", label: "Distribution Completed" }] };
-  if (a.type === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted + 1, log: [...m.log, { t: "distributionMiss", label: "Distribution Missed" }] };
-  if (a.type === "claim") return { ...m, claims: m.claims + 1, log: [...m.log, { t: "claim", label: "Claim" }] };
-  if (a.type === "punch") return { ...m, punches: m.punches + 1, log: [...m.log, { t: "punch", label: "Punch" }] };
-  if (a.type === "penaltySave") return { ...m, penaltySaves: m.penaltySaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "penaltySave", label: "Penalty Save" }] };
-  if (a.type === "bigSave") return { ...m, bigSaves: m.bigSaves + 1, saves: m.saves + 1, shotsFaced: m.shotsFaced + 1, log: [...m.log, { t: "bigSave", label: "Big Save" }] };
-  if (a.type === "toggleError") {
-    if (!m.log.length) return m;
-    const lastIdx = m.log.length - 1;
-    const last = m.log[lastIdx];
-    if (last.t !== "goal") return m;
-    const flagged = !last.isError;
-    const log = [...m.log];
-    log[lastIdx] = { ...last, isError: flagged, label: flagged ? "Goal Against (Error)" : "Goal Against" };
-    return { ...m, errors: m.errors + (flagged ? 1 : -1), log };
-  }
-  if (a.type === "undo" && m.log.length) {
-    const last = m.log[m.log.length - 1];
-    const log = m.log.slice(0, -1);
-    if (last.t === "save") return { ...m, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-    if (last.t === "goal") return { ...m, goalsAgainst: m.goalsAgainst - 1, shotsFaced: m.shotsFaced - 1, errors: last.isError ? m.errors - 1 : m.errors, log };
-    if (last.t === "goalFor") return { ...m, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
-    if (last.t === "gkGoal") return { ...m, gkGoals: m.gkGoals - 1, ourGoals: m.ourGoals - 1, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
-    if (last.t === "assist") return { ...m, assists: m.assists - 1, log };
-    if (last.t === "hockeyAssist") return { ...m, hockeyAssists: m.hockeyAssists - 1, log };
-    if (last.t === "sweep") return { ...m, sweeps: m.sweeps - 1, log };
-    if (last.t === "teamShotOnGoal") return { ...m, teamShotsOnGoal: m.teamShotsOnGoal - 1, log };
-    if (last.t === "distributionComplete") return { ...m, distributionCompleted: m.distributionCompleted - 1, distributionAttempted: m.distributionAttempted - 1, log };
-    if (last.t === "distributionMiss") return { ...m, distributionAttempted: m.distributionAttempted - 1, log };
-    if (last.t === "claim") return { ...m, claims: m.claims - 1, log };
-    if (last.t === "punch") return { ...m, punches: m.punches - 1, log };
-    if (last.t === "penaltySave") return { ...m, penaltySaves: m.penaltySaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-    if (last.t === "bigSave") return { ...m, bigSaves: m.bigSaves - 1, saves: m.saves - 1, shotsFaced: m.shotsFaced - 1, log };
-    return { ...m, shotsFaced: m.shotsFaced - 1, log };
-  }
-  return m;
-}
 
 export default function KeeperStat() {
   const [screen, setScreen] = useState("welcome");
@@ -3541,7 +3483,7 @@ export default function KeeperStat() {
     const primed = Object.keys(highlightWindowsAtSave).some((k) => clipsAtSave[k])
       ? primeReelPlayback(clipsAtSave)
       : null;
-    const faced = Math.max(match.shotsFaced, match.saves + match.goalsAgainst);
+    const faced = match.shotsFaced;
     const [mm] = match.clock.split(":").map(Number);
     const payload = {
       opp: match.opponent || "Unknown Opponent",
