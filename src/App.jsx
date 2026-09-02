@@ -8,6 +8,7 @@ import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, s
 import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback, primeVideoDuration } from "./highlightReel.js";
 import { startAnchor, elapsedMs, pauseAnchor, resumeAnchor, formatClock, anchorFromClock } from "./matchClock.js";
 import { emptyMatch, applyMatchAction } from "./matchActions.js";
+import { putClip, listClips, listPending, attachMatchId, markUploaded, prune } from "./clipStore.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, savePercent, gde, toe, gmis } from "../shared/scoring.js";
 import welcomeBg from "./assets/welcome-bg.webp";
 
@@ -1870,7 +1871,7 @@ const ClipPlayer = ({ src, label }) => {
   );
 };
 
-const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress, uploadStatus }) => {
+const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress, uploadStatus, pendingClipsByMatch, onRetryClipUploads, retryingClips }) => {
   const activeMatchN = matches.find((x) => x.n === matchId)?.n ?? matches[matches.length - 1]?.n;
   const activeMatchIdForClips = matches.find((x) => x.n === activeMatchN)?.id;
   // Clips live in root state (see App's videosByMatch) rather than local
@@ -1883,6 +1884,8 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const clips = videos.filter((v) => v.kind !== "highlights");
   const [openClipId, setOpenClipId] = useState(null);
   const buildingReel = activeMatchIdForClips != null ? reelProgress?.[activeMatchIdForClips] : undefined;
+  const pendingClips = (activeMatchIdForClips != null && pendingClipsByMatch?.[activeMatchIdForClips]) || 0;
+  const retrying = activeMatchIdForClips != null && !!retryingClips?.[activeMatchIdForClips];
   const uploading = activeMatchIdForClips != null ? uploadStatus?.[activeMatchIdForClips] : undefined;
 
   useEffect(() => {
@@ -1976,7 +1979,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             🎥 Watch Game Film
           </button>
         )}
-        {(clips.length > 0 || highlightReelVideo || buildingReel !== undefined || uploading) && (
+        {(clips.length > 0 || highlightReelVideo || buildingReel !== undefined || uploading || pendingClips > 0) && (
           <Card style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, letterSpacing: 1, marginBottom: 8 }}>
               RECORDED FOOTAGE{clips.length > 1 ? ` — ${clips.length} CLIPS` : ""}
@@ -2007,6 +2010,24 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             )}
             {/* Each Record Film session (stop, then start again later) is its
                 own clip rather than one recording overwriting the last. */}
+            {pendingClips > 0 && (
+              <div style={{ marginBottom: 8, padding: 10, borderRadius: 10, border: `1px solid ${C.gold}55`, background: "rgba(255,193,7,.07)" }}>
+                <div style={{ fontSize: 12.5, color: C.gold, fontWeight: 700 }}>
+                  {clips.length} of {clips.length + pendingClips} clips uploaded
+                </div>
+                <div style={{ fontSize: 11.5, color: C.grayDark, marginTop: 3, lineHeight: 1.4 }}>
+                  {pendingClips} clip{pendingClips > 1 ? "s are" : " is"} still saved on this device and will upload automatically next time you open the app.
+                </div>
+                <button
+                  onClick={() => onRetryClipUploads?.(activeMatchIdForClips)}
+                  disabled={retrying}
+                  className="btn3d btn3d-outline"
+                  style={{ width: "100%", marginTop: 8, padding: 10, borderRadius: 10, color: C.white, fontWeight: 700, fontSize: 13, opacity: retrying ? 0.6 : 1 }}
+                >
+                  {retrying ? "Uploading…" : "↻ Retry upload"}
+                </button>
+              </div>
+            )}
             {clips.map((clip, i) => (
               <div key={clip.id} style={{ marginTop: i || highlightReelVideo || buildingReel !== undefined ? 8 : 0 }}>
                 <button
@@ -3057,6 +3078,9 @@ export default function KeeperStat() {
   // overwriting a single slot, which used to silently erase the previous
   // clip the moment a new recording started.
   const recordedVideoClipsRef = useRef([]);
+  // Clips are keyed by a per-match session id in IndexedDB, because they're
+  // recorded long before the match (and its id) exists on the server.
+  const clipSessionIdRef = useRef(null);
   const [showGMIS, setShowGMIS] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState({ matchReminders: true, weeklySummary: false });
   const [shareOpen, setShareOpen] = useState(false);
@@ -3130,6 +3154,76 @@ export default function KeeperStat() {
       })
       .catch((err) => console.error("Failed to load recorded clips", err));
   }, [dataApi, activeKeeperId]);
+  // Clips recorded but not yet on the server, by match id — drives the
+  // "2 of 5 uploaded" line and the Retry button on the match report.
+  const [pendingClipsByMatch, setPendingClipsByMatch] = useState({});
+  const [retryingClips, setRetryingClips] = useState({});
+
+  const refreshPendingClips = useCallback(async () => {
+    const pending = await listPending();
+    const byMatch = {};
+    for (const clip of pending) byMatch[clip.matchId] = (byMatch[clip.matchId] || 0) + 1;
+    setPendingClipsByMatch(byMatch);
+    return pending;
+  }, []);
+
+  // Uploads whatever is still sitting in the clip store. Called on load —
+  // so a match saved on a dead connection finishes itself next time the app
+  // opens — and from the Retry button on the report.
+  const uploadPendingClips = useCallback(async (matchId = null) => {
+    const pending = (await listPending()).filter((c) => !matchId || c.matchId === matchId);
+    if (!pending.length) return { uploaded: 0, failed: 0 };
+    let uploaded = 0, failed = 0;
+    for (const clip of pending) {
+      if (!clip.blob) { failed++; continue; }
+      const aborter = new AbortController();
+      const timer = setTimeout(() => aborter.abort(), 5 * 60 * 1000);
+      try {
+        const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, clip.matchId, clip.blob, { abortSignal: aborter.signal });
+        const videoRecord = await dataApi.addMatchVideo(activeKeeperId, clip.matchId, videoUrl, "clip");
+        await markUploaded(clip.id);
+        setVideosByMatch((vb) => ({ ...vb, [clip.matchId]: [...(vb[clip.matchId] || []), videoRecord] }));
+        uploaded++;
+      } catch (err) {
+        failed++;
+        console.error("Failed to upload a pending clip", err);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    await refreshPendingClips();
+    return { uploaded, failed };
+  }, [dataApi, activeKeeperId, refreshPendingClips]);
+
+  const retryClipUploads = useCallback(async (matchId) => {
+    setRetryingClips((r) => ({ ...r, [matchId]: true }));
+    try {
+      const { uploaded, failed } = await uploadPendingClips(matchId);
+      if (failed) showError(`${failed} clip${failed > 1 ? "s" : ""} still couldn't be uploaded. They're safe on this device — try again later.`);
+    } finally {
+      setRetryingClips((r) => {
+        const next = { ...r };
+        delete next[matchId];
+        return next;
+      });
+    }
+  }, [uploadPendingClips]);
+
+  // On open: clear out what's already uploaded or long abandoned, then
+  // resume anything still owed to the server. Demo mode's "uploads" are
+  // local object URLs, so there's nothing to resume there.
+  useEffect(() => {
+    if (mode !== "auth" || !activeKeeperId) return;
+    let cancelled = false;
+    (async () => {
+      await prune();
+      if (cancelled) return;
+      const pending = await refreshPendingClips();
+      if (!cancelled && pending.length) await uploadPendingClips();
+    })();
+    return () => { cancelled = true; };
+  }, [mode, activeKeeperId, refreshPendingClips, uploadPendingClips]);
+
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [rankings, setRankings] = useState([]);
   const [rankingsLoading, setRankingsLoading] = useState(false);
@@ -3440,6 +3534,7 @@ export default function KeeperStat() {
     setMatchStatus("live");
     setClockPaused(false);
     recordedVideoClipsRef.current = [];
+    clipSessionIdRef.current = globalThis.crypto?.randomUUID?.() || `sess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setRecordingError(null);
   };
   const toggleClockPause = () =>
@@ -3450,6 +3545,14 @@ export default function KeeperStat() {
         : pauseAnchor(clockAnchorRef.current, now);
       return !paused;
     });
+  const persistClip = async (blob) => {
+    if (!clipSessionIdRef.current) return;
+    await putClip({
+      sessionId: clipSessionIdRef.current,
+      index: recordedVideoClipsRef.current.length - 1,
+      blob,
+    });
+  };
   // Camera/mic access is opt-in per match rather than automatic — most
   // matches won't want a permission prompt, and the recording (if any) is
   // stopped the moment the match ends since there's nothing left to film.
@@ -3457,7 +3560,10 @@ export default function KeeperStat() {
     if (recording) {
       recordingStartedAtRef.current = null;
       const blob = await matchRecorderRef.current?.stop();
-      if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
+      if (blob) {
+        recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
+        await persistClip(blob);
+      }
       setRecording(false);
       setVideoStream(null);
       return;
@@ -3480,7 +3586,10 @@ export default function KeeperStat() {
     if (recording) {
       recordingStartedAtRef.current = null;
       const blob = await matchRecorderRef.current?.stop();
-      if (blob) recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
+      if (blob) {
+        recordedVideoClipsRef.current = [...recordedVideoClipsRef.current, blob];
+        await persistClip(blob);
+      }
       setRecording(false);
       setVideoStream(null);
     }
@@ -3594,9 +3703,16 @@ export default function KeeperStat() {
               }
             }
 
+            // Stamp the stored clips with the match they belong to, so a
+            // failed upload can be resumed later (or after a reload) rather
+            // than the footage being lost with the page.
+            const sessionId = clipSessionIdRef.current;
+            if (sessionId) await attachMatchId(sessionId, record.id);
+            const storedClips = sessionId ? await listClips(sessionId) : [];
+
             const toUpload = [
-              ...clips.map((blob) => ({ blob, kind: "clip" })),
-              ...(reelBlob ? [{ blob: reelBlob, kind: "highlights" }] : []),
+              ...clips.map((blob, i) => ({ blob, kind: "clip", storedId: storedClips[i]?.id ?? null })),
+              ...(reelBlob ? [{ blob: reelBlob, kind: "highlights", storedId: null }] : []),
             ];
             setUploadStatus((us) => ({ ...us, [record.id]: { done: 0, total: toUpload.length } }));
             let failures = 0;
@@ -3614,6 +3730,7 @@ export default function KeeperStat() {
                   const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, item.blob, { abortSignal: aborter.signal });
                   const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, item.kind);
                   setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+                  if (item.storedId != null) await markUploaded(item.storedId);
                   uploaded = true;
                 } catch (err) {
                   console.error(`Failed to upload match ${item.kind} (attempt ${attempt + 1}/3)`, err);
@@ -3632,11 +3749,12 @@ export default function KeeperStat() {
               delete next[record.id];
               return next;
             });
+            await refreshPendingClips();
             if (failures) {
               showError(
                 failures === toUpload.length
-                  ? "Match saved, but the recorded video couldn't be uploaded."
-                  : `Match saved, but ${failures} of ${toUpload.length} videos couldn't be uploaded.`
+                  ? "Match saved, but the recorded video couldn't be uploaded. It's kept on this device — open the match report to retry."
+                  : `Match saved, but ${failures} of ${toUpload.length} videos couldn't be uploaded. They're kept on this device — open the match report to retry.`
               );
             }
           })();
@@ -3748,11 +3866,11 @@ export default function KeeperStat() {
     // The old "Match Stats (Live)" screen duplicated numbers already on
     // the live tracker, so its tab now shows the LAST match's full report
     // instead (matchId null → MatchReport falls back to the latest match).
-    stats: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={null} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} />,
+    stats: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={null} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} pendingClipsByMatch={pendingClipsByMatch} onRetryClipUploads={retryClipUploads} retryingClips={retryingClips} />,
     dashboard: <Dashboard go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} onOpenKeeperSwitch={() => setKeeperSheetOpen(true)} />,
     parent: <ParentView go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     development: <Development go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
-    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} />,
+    report: <MatchReport go={go} baseline={baseline} showGMIS={showGMIS} matches={matches} matchId={selectedMatchId} activeKeeper={activeKeeper} onShare={openShare} videosByMatch={videosByMatch} ensureMatchVideosLoaded={ensureMatchVideosLoaded} reelProgress={reelProgress} uploadStatus={uploadStatus} pendingClipsByMatch={pendingClipsByMatch} onRetryClipUploads={retryClipUploads} retryingClips={retryingClips} />,
     progress: <Progress go={go} baseline={baseline} matches={matches} activeKeeper={activeKeeper} />,
     training: <Training go={go} matches={matches} />,
     interview: <Interview go={go} answers={interviewAnswers} onSaveAnswer={saveInterviewAnswer} activeKeeper={activeKeeper} />,
