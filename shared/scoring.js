@@ -48,6 +48,13 @@ export const impactScoreFromStats = (shotsFaced, saves, goalsAgainst, baseline, 
   return Math.round(Math.min(99, Math.max(5, s)));
 };
 
+// Save percentage for display. Saves are no longer a subset of shots on
+// goal — claiming a cross is a save but never a shot on target — so this
+// can exceed 1 on a match full of crosses. Clamped to 100 so the UI can't
+// print a nonsensical "140% save rate".
+export const savePercent = (saves, shotsFaced) =>
+  shotsFaced ? Math.min(100, Math.round((saves / shotsFaced) * 100)) : 0;
+
 // GDE — Goalkeeper Defensive Efficiency: saves / shots faced (0–1). Returns
 // null when no shots were faced rather than 0, which would misrepresent a
 // shutout with zero work as a poor defensive performance.

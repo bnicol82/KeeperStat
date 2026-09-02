@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LEVELS, goalsPrevented, impactScoreFromStats, attackingBonus, ATTACKING_WEIGHTS, gde, toe, gmis } from "./scoring.js";
+import { LEVELS, goalsPrevented, impactScoreFromStats, attackingBonus, ATTACKING_WEIGHTS, savePercent, gde, toe, gmis } from "./scoring.js";
 
 describe("LEVELS", () => {
   it("has a baseline between 0 and 1 for every level", () => {
@@ -97,6 +97,24 @@ describe("attackingBonus", () => {
   it("is zero for missing or empty input", () => {
     expect(attackingBonus()).toBe(0);
     expect(attackingBonus({})).toBe(0);
+  });
+});
+
+describe("savePercent", () => {
+  it("reports the ordinary case", () => {
+    expect(savePercent(7, 10)).toBe(70);
+    expect(savePercent(10, 10)).toBe(100);
+  });
+
+  // Saves are no longer a subset of shots on goal — a claimed cross is a
+  // save that was never a shot on target — so this ratio can exceed 1.
+  it("clamps at 100 when saves outnumber shots on goal", () => {
+    expect(savePercent(5, 2)).toBe(100);
+  });
+
+  it("is zero when no shots on goal were faced", () => {
+    expect(savePercent(0, 0)).toBe(0);
+    expect(savePercent(4, 0)).toBe(0);
   });
 });
 
