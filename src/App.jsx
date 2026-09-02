@@ -5,7 +5,7 @@ import { createDemoApi } from "./demoApi.js";
 import { parseScheduleText } from "./scheduleImport.js";
 import { MatchRecorder, isRecordingSupported } from "./videoRecorder.js";
 import { loadDetector, detectAndClassify, drawDetections, mapTapToCanvasPoint, sampleColorAtPoint, boxesNear, ROLE_COLORS } from "./playerTracker.js";
-import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback } from "./highlightReel.js";
+import { extractHighlightWindows, buildReel, concatVideos, primeReelPlayback, primeVideoDuration } from "./highlightReel.js";
 import { startAnchor, elapsedMs, pauseAnchor, resumeAnchor, formatClock, anchorFromClock } from "./matchClock.js";
 import { emptyMatch, applyMatchAction } from "./matchActions.js";
 import { LEVELS, goalsPrevented, impactScoreFromStats, savePercent, gde, toe, gmis } from "../shared/scoring.js";
@@ -1832,6 +1832,44 @@ const cellBox = (label, value) => (
   </Card>
 );
 
+const ClipPlayer = ({ src, label }) => {
+  const videoRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const onLoadedMetadata = async () => {
+    try {
+      await primeVideoDuration(videoRef.current);
+    } catch {
+      // Priming is best-effort: an un-seekable clip still plays start to
+      // finish, it just can't be scrubbed.
+    }
+    setReady(true);
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <video
+        ref={videoRef}
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        onLoadedMetadata={onLoadedMetadata}
+        onError={() => setFailed(true)}
+        style={{ width: "100%", borderRadius: 12, background: "#000", display: "block" }}
+      />
+      {failed ? (
+        <div style={{ fontSize: 11.5, color: C.grayDark, marginTop: 4 }}>
+          {label} couldn't be loaded. <a href={src} target="_blank" rel="noopener noreferrer" style={{ color: C.gold }}>Open it directly</a>.
+        </div>
+      ) : (
+        !ready && <div style={{ fontSize: 11.5, color: C.grayDark, marginTop: 4 }}>Preparing {label}…</div>
+      )}
+    </div>
+  );
+};
+
 const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, onShare, videosByMatch, ensureMatchVideosLoaded, reelProgress, uploadStatus }) => {
   const activeMatchN = matches.find((x) => x.n === matchId)?.n ?? matches[matches.length - 1]?.n;
   const activeMatchIdForClips = matches.find((x) => x.n === activeMatchN)?.id;
@@ -1843,6 +1881,7 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
   const videos = (activeMatchIdForClips && videosByMatch[activeMatchIdForClips]) || [];
   const highlightReelVideo = videos.find((v) => v.kind === "highlights");
   const clips = videos.filter((v) => v.kind !== "highlights");
+  const [openClipId, setOpenClipId] = useState(null);
   const buildingReel = activeMatchIdForClips != null ? reelProgress?.[activeMatchIdForClips] : undefined;
   const uploading = activeMatchIdForClips != null ? uploadStatus?.[activeMatchIdForClips] : undefined;
 
@@ -1969,14 +2008,16 @@ const MatchReport = ({ go, baseline, showGMIS, matches, matchId, activeKeeper, o
             {/* Each Record Film session (stop, then start again later) is its
                 own clip rather than one recording overwriting the last. */}
             {clips.map((clip, i) => (
-              <button
-                key={clip.id}
-                onClick={() => window.open(clip.videoUrl, "_blank", "noopener,noreferrer")}
-                className="btn3d btn3d-outline"
-                style={{ width: "100%", marginTop: i || highlightReelVideo || buildingReel !== undefined ? 8 : 0, padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-              >
-                🎥 Watch Clip {i + 1}
-              </button>
+              <div key={clip.id} style={{ marginTop: i || highlightReelVideo || buildingReel !== undefined ? 8 : 0 }}>
+                <button
+                  onClick={() => setOpenClipId((cur) => (cur === clip.id ? null : clip.id))}
+                  className="btn3d btn3d-outline"
+                  style={{ width: "100%", padding: 12, borderRadius: 12, color: C.white, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                >
+                  🎥 {openClipId === clip.id ? "Hide" : "Watch"} Clip {i + 1}
+                </button>
+                {openClipId === clip.id && <ClipPlayer src={clip.videoUrl} label={`Clip ${i + 1}`} />}
+              </div>
             ))}
           </Card>
         )}
@@ -3560,22 +3601,31 @@ export default function KeeperStat() {
             setUploadStatus((us) => ({ ...us, [record.id]: { done: 0, total: toUpload.length } }));
             let failures = 0;
             for (const item of toUpload) {
-              const aborter = new AbortController();
-              const timer = setTimeout(() => aborter.abort(), 5 * 60 * 1000);
-              try {
-                const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, item.blob, { abortSignal: aborter.signal });
-                const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, item.kind);
-                setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
-              } catch (err) {
-                failures++;
-                console.error(`Failed to upload match ${item.kind}`, err);
-              } finally {
-                clearTimeout(timer);
-                setUploadStatus((us) => {
-                  const cur = us[record.id];
-                  return cur ? { ...us, [record.id]: { ...cur, done: cur.done + 1 } } : us;
-                });
+              // Retry each clip a couple of times before giving up: a single
+              // dropped connection on a sideline network used to lose that
+              // clip outright, and a lost clip can never be recovered — the
+              // recording only exists in this page's memory.
+              let uploaded = false;
+              for (let attempt = 0; attempt < 3 && !uploaded; attempt++) {
+                if (attempt) await new Promise((r) => setTimeout(r, 2000 * attempt));
+                const aborter = new AbortController();
+                const timer = setTimeout(() => aborter.abort(), 5 * 60 * 1000);
+                try {
+                  const videoUrl = await dataApi.uploadMatchVideo(activeKeeperId, record.id, item.blob, { abortSignal: aborter.signal });
+                  const videoRecord = await dataApi.addMatchVideo(activeKeeperId, record.id, videoUrl, item.kind);
+                  setVideosByMatch((vb) => ({ ...vb, [record.id]: [...(vb[record.id] || []), videoRecord] }));
+                  uploaded = true;
+                } catch (err) {
+                  console.error(`Failed to upload match ${item.kind} (attempt ${attempt + 1}/3)`, err);
+                } finally {
+                  clearTimeout(timer);
+                }
               }
+              if (!uploaded) failures++;
+              setUploadStatus((us) => {
+                const cur = us[record.id];
+                return cur ? { ...us, [record.id]: { ...cur, done: cur.done + 1 } } : us;
+              });
             }
             setUploadStatus((us) => {
               const next = { ...us };
