@@ -135,18 +135,27 @@ async function loadClipVideo(blob, primedClip) {
       { error: "Loading a recorded clip timed out" }
     );
   }
-  if (!Number.isFinite(video.duration)) {
-    await withTimeout(
-      new Promise((resolve) => {
-        video.onseeked = resolve;
-        video.currentTime = 1e10;
-      }),
-      5000,
-      { fallback: undefined }
-    );
-    video.currentTime = 0;
-  }
+  await primeVideoDuration(video);
   return { video, url };
+}
+
+// Forces a duration-less recording to become seekable. MediaRecorder writes
+// webm with no duration header, so a video element reports Infinity and the
+// browser can't build a seek index — playback then stalls the video track
+// while audio keeps going. Seeking past the end once makes the browser scan
+// the file and settle on a real duration. Exported because saved clips play
+// back through their own element, not just the reel builder.
+export async function primeVideoDuration(video) {
+  if (Number.isFinite(video.duration)) return;
+  await withTimeout(
+    new Promise((resolve) => {
+      video.onseeked = resolve;
+      video.currentTime = 1e10;
+    }),
+    5000,
+    { fallback: undefined }
+  );
+  video.currentTime = 0;
 }
 
 function seekTo(video, t) {
